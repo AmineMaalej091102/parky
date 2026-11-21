@@ -1,0 +1,15 @@
+﻿# Compiled binaries & object files
+*.o
+*.out
+*.exe
+parky
+
+# Backup & IDE temp files
+*~
+*.bak
+.glade~
+autom4te.cache/
+.vscode/
+
+# Temporary migration folder
+_legacy_raw/
