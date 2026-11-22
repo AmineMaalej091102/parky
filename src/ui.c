@@ -128,14 +128,50 @@ static GtkWidget *make_labeled_entry(const char *label, GtkWidget **entry)
     return box;
 }
 
+static GtkWidget *make_stock_button(const char *label, const char *stock)
+{
+    GtkWidget *button = gtk_button_new_from_stock(stock);
+    GtkWidget *labelWidget = gtk_bin_get_child(GTK_BIN(button));
+    (void)label;
+    if (GTK_IS_HBOX(labelWidget)) {
+        GList *children = gtk_container_get_children(GTK_CONTAINER(labelWidget));
+        GList *child;
+        for (child = children; child != NULL; child = child->next) {
+            if (GTK_IS_LABEL(child->data)) {
+                gtk_label_set_text(GTK_LABEL(child->data), label);
+                break;
+            }
+        }
+        g_list_free(children);
+    }
+    return button;
+}
+
+static GtkWidget *make_stock_tab(const char *label, const char *stock)
+{
+    GtkWidget *tab = gtk_hbox_new(FALSE, 4);
+    GtkWidget *icon = gtk_image_new_from_stock(
+        stock, GTK_ICON_SIZE_MENU);
+    gtk_box_pack_start(GTK_BOX(tab), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(tab), gtk_label_new(label),
+                       FALSE, FALSE, 0);
+    return tab;
+}
+
 static GtkWidget *make_dashboard_header(UiState *state, const char *role)
 {
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
+    GtkWidget *profile = gtk_hbox_new(FALSE, 6);
+    GtkWidget *avatar = gtk_image_new_from_stock(
+        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_LARGE_TOOLBAR);
     GtkWidget *identity = gtk_label_new("User");
     GtkWidget *badge = gtk_label_new(role);
-    GtkWidget *signOut = gtk_button_new_with_label("Sign Out");
+    GtkWidget *signOut = make_stock_button("Sign Out", GTK_STOCK_QUIT);
     const char *name = "Guest";
     char identityText[128];
+    char badgeMarkup[128];
+    char identityMarkup[128];
+    const char *badgeColor;
     int i;
 
     for (i = 0; i < state->data->userCount; ++i) {
@@ -146,12 +182,22 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     }
     snprintf(identityText, sizeof(identityText),
              "Signed in: %s", name);
-    gtk_label_set_text(GTK_LABEL(identity), identityText);
+    snprintf(identityMarkup, sizeof(identityMarkup),
+             "<span weight='bold'>%s</span>", identityText);
+    gtk_label_set_markup(GTK_LABEL(identity), identityMarkup);
+    badgeColor = strcmp(role, "ADMIN") == 0 ? "#1F5FBF" :
+                 strcmp(role, "AGENT") == 0 ? "#287A4D" : "#8A5A00";
+    snprintf(badgeMarkup, sizeof(badgeMarkup),
+             "<span foreground='%s' weight='bold'>  %s  </span>",
+             badgeColor, role);
+    gtk_label_set_markup(GTK_LABEL(badge), badgeMarkup);
     if (strcmp(role, "ADMIN") == 0) state->adminIdentity = identity;
     else if (strcmp(role, "AGENT") == 0) state->agentIdentity = identity;
     else state->citizenIdentity = identity;
-    gtk_box_pack_start(GTK_BOX(header), identity, FALSE, FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(header), badge, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(profile), avatar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(profile), identity, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
     gtk_box_pack_end(GTK_BOX(header), signOut, FALSE, FALSE, 8);
     g_signal_connect(signOut, "clicked",
                      G_CALLBACK(sign_out_clicked), state);
@@ -188,6 +234,7 @@ static void set_status(UiState *state, const char *message)
 static void refresh_dashboard_identity(UiState *state)
 {
     char identityText[128];
+    char identityMarkup[128];
     const char *name = "Guest";
     int i;
     for (i = 0; i < state->data->userCount; ++i) {
@@ -197,12 +244,14 @@ static void refresh_dashboard_identity(UiState *state)
         }
     }
     snprintf(identityText, sizeof(identityText), "Signed in: %s", name);
+    snprintf(identityMarkup, sizeof(identityMarkup),
+             "<span weight='bold'>%s</span>", identityText);
     if (state->adminIdentity != NULL)
-        gtk_label_set_text(GTK_LABEL(state->adminIdentity), identityText);
+        gtk_label_set_markup(GTK_LABEL(state->adminIdentity), identityMarkup);
     if (state->agentIdentity != NULL)
-        gtk_label_set_text(GTK_LABEL(state->agentIdentity), identityText);
+        gtk_label_set_markup(GTK_LABEL(state->agentIdentity), identityMarkup);
     if (state->citizenIdentity != NULL)
-        gtk_label_set_text(GTK_LABEL(state->citizenIdentity), identityText);
+        gtk_label_set_markup(GTK_LABEL(state->citizenIdentity), identityMarkup);
 }
 
 static void set_page(UiState *state, int page)
@@ -210,11 +259,13 @@ static void set_page(UiState *state, int page)
     gtk_notebook_set_current_page(GTK_NOTEBOOK(state->notebook), page);
 }
 
-static GtkWidget *make_tree_view(GtkListStore **store,
+static GtkWidget *make_tree_view(const char *frameTitle,
+                                 GtkListStore **store,
                                  const char **titles, int columnCount)
 {
     GtkWidget *tree = gtk_tree_view_new();
     GtkWidget *scroller = gtk_scrolled_window_new(NULL, NULL);
+    GtkWidget *frame = gtk_frame_new(frameTitle);
     GType types[6];
     int i;
     if (columnCount > 6) {
@@ -223,6 +274,9 @@ static GtkWidget *make_tree_view(GtkListStore **store,
     for (i = 0; i < columnCount; ++i) {
         types[i] = G_TYPE_STRING;
     }
+    gtk_container_set_border_width(GTK_CONTAINER(frame), 6);
+    gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_ETCHED_IN);
+    gtk_tree_view_set_rules_hint(GTK_TREE_VIEW(tree), TRUE);
     *store = gtk_list_store_newv(columnCount, types);
     gtk_tree_view_set_model(GTK_TREE_VIEW(tree), GTK_TREE_MODEL(*store));
     g_object_unref(*store);
@@ -236,14 +290,17 @@ static GtkWidget *make_tree_view(GtkListStore **store,
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
     gtk_container_add(GTK_CONTAINER(scroller), tree);
-    return scroller;
+    gtk_container_add(GTK_CONTAINER(frame), scroller);
+    gtk_widget_set_size_request(scroller, -1, 90);
+    return frame;
 }
 
 static GtkListStore *tree_store(UiState *state, GtkWidget *treeWidget)
 {
     GtkWidget *tree;
     (void)state;
-    tree = gtk_bin_get_child(GTK_BIN(treeWidget));
+    tree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(treeWidget))));
     return GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(tree)));
 }
 
@@ -756,14 +813,17 @@ static GtkWidget *login_view(UiState *state)
     GtkWidget *box = gtk_vbox_new(FALSE, 10);
     GtkWidget *title = gtk_label_new("Parky - Sign in");
     GtkWidget *registerRow;
-    GtkWidget *loginBtn = gtk_button_new_with_label("Sign in");
-    GtkWidget *registerBtn = gtk_button_new_with_label("Register as citizen");
+    GtkWidget *loginBtn = make_stock_button(
+        "Sign in", GTK_STOCK_DIALOG_AUTHENTICATION);
+    GtkWidget *registerBtn = make_stock_button(
+        "Register as citizen", GTK_STOCK_ADD);
     GtkWidget *hint = gtk_label_new(
         "Demo accounts:\n"
         "Admin: admin@parky.local / admin\n"
         "Agent: agent@parky.local / agent\n"
         "Citizen: citizen@parky.local / citizen");
 
+    gtk_container_set_border_width(GTK_CONTAINER(box), 16);
     gtk_misc_set_alignment(GTK_MISC(title), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 10);
     gtk_box_pack_start(GTK_BOX(box),
@@ -787,12 +847,18 @@ static GtkWidget *login_view(UiState *state)
 static GtkWidget *admin_view(UiState *state)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 8);
-    GtkWidget *occupancy = gtk_button_new_with_label("View occupancy statistics");
-    GtkWidget *resolve = gtk_button_new_with_label("Resolve oldest complaint");
-    GtkWidget *deleteUser = gtk_button_new_with_label("Delete first user");
-    GtkWidget *deleteParking = gtk_button_new_with_label("Delete first parking");
-    GtkWidget *deleteAgent = gtk_button_new_with_label("Delete first agent");
-    GtkWidget *demoData = gtk_button_new_with_label("Generate Demo Data");
+    GtkWidget *occupancy = make_stock_button(
+        "View occupancy statistics", GTK_STOCK_REFRESH);
+    GtkWidget *resolve = make_stock_button(
+        "Resolve oldest complaint", GTK_STOCK_APPLY);
+    GtkWidget *deleteUser = make_stock_button(
+        "Delete first user", GTK_STOCK_DELETE);
+    GtkWidget *deleteParking = make_stock_button(
+        "Delete first parking", GTK_STOCK_DELETE);
+    GtkWidget *deleteAgent = make_stock_button(
+        "Delete first agent", GTK_STOCK_DELETE);
+    GtkWidget *demoData = make_stock_button(
+        "Generate Demo Data", GTK_STOCK_REFRESH);
     GtkWidget *actions = gtk_hbox_new(TRUE, 6);
     GtkListStore *store;
     const char *userTitles[] = {"ID", "Name", "Email", "Role"};
@@ -800,6 +866,7 @@ static GtkWidget *admin_view(UiState *state)
     const char *complaintTitles[] = {"ID", "Subject", "Description", "Status"};
     char summary[160];
 
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     snprintf(summary, sizeof(summary),
              "Users: %d | Parkings: %d | Agents: %d | Complaints: %d",
              state->data->userCount, state->data->parkingCount,
@@ -811,9 +878,11 @@ static GtkWidget *admin_view(UiState *state)
                        FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), occupancy, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), resolve, FALSE, FALSE, 4);
-    state->adminUsers = make_tree_view(&store, userTitles, 4);
-    state->adminParkings = make_tree_view(&store, parkingTitles, 4);
-    state->adminComplaints = make_tree_view(&store, complaintTitles, 4);
+    state->adminUsers = make_tree_view("Users", &store, userTitles, 4);
+    state->adminParkings = make_tree_view("Parkings", &store,
+                                           parkingTitles, 4);
+    state->adminComplaints = make_tree_view("Complaints", &store,
+                                             complaintTitles, 4);
     gtk_box_pack_start(GTK_BOX(box), state->adminUsers, TRUE, TRUE, 4);
     gtk_box_pack_start(GTK_BOX(box), state->adminParkings, TRUE, TRUE, 4);
     gtk_box_pack_start(GTK_BOX(box), state->adminComplaints, TRUE, TRUE, 4);
@@ -841,12 +910,16 @@ static GtkWidget *admin_view(UiState *state)
 static GtkWidget *agent_view(UiState *state)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 8);
-    GtkWidget *spot = gtk_button_new_with_label("Mark spot reserved");
-    GtkWidget *approve = gtk_button_new_with_label("Approve reservation");
-    GtkWidget *reject = gtk_button_new_with_label("Reject reservation");
+    GtkWidget *spot = make_stock_button(
+        "Mark spot reserved", GTK_STOCK_EDIT);
+    GtkWidget *approve = make_stock_button(
+        "Approve reservation", GTK_STOCK_APPLY);
+    GtkWidget *reject = make_stock_button(
+        "Reject reservation", GTK_STOCK_CANCEL);
     GtkListStore *store;
     const char *reservationTitles[] = {"ID", "Date", "Time", "Status"};
     const char *serviceTitles[] = {"ID", "Name", "Description", "Status"};
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     gtk_box_pack_start(GTK_BOX(box),
                        make_dashboard_header(state, "AGENT"),
                        FALSE, FALSE, 4);
@@ -857,9 +930,9 @@ static GtkWidget *agent_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(box), approve, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), reject, FALSE, FALSE, 4);
     state->agentReservations =
-        make_tree_view(&store, reservationTitles, 4);
+        make_tree_view("Reservations", &store, reservationTitles, 4);
     state->agentServices =
-        make_tree_view(&store, serviceTitles, 4);
+        make_tree_view("Parking Services", &store, serviceTitles, 4);
     gtk_box_pack_start(GTK_BOX(box), state->agentReservations,
                        TRUE, TRUE, 4);
     gtk_box_pack_start(GTK_BOX(box), state->agentServices,
@@ -876,11 +949,15 @@ static GtkWidget *agent_view(UiState *state)
 static GtkWidget *citizen_view(UiState *state)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 6);
-    GtkWidget *search = gtk_button_new_with_label("Search");
-    GtkWidget *reserve = gtk_button_new_with_label("Reserve spot");
-    GtkWidget *book = gtk_button_new_with_label("Book service");
-    GtkWidget *review = gtk_button_new_with_label("Submit review");
-    GtkWidget *complaint = gtk_button_new_with_label("Submit complaint");
+    GtkWidget *search = make_stock_button("Search", GTK_STOCK_FIND);
+    GtkWidget *reserve = make_stock_button(
+        "Reserve spot", GTK_STOCK_ADD);
+    GtkWidget *book = make_stock_button(
+        "Book service", GTK_STOCK_APPLY);
+    GtkWidget *review = make_stock_button(
+        "Submit review", GTK_STOCK_EDIT);
+    GtkWidget *complaint = make_stock_button(
+        "Submit complaint", GTK_STOCK_DIALOG_AUTHENTICATION);
     GtkWidget *reviewBox = gtk_hbox_new(FALSE, 6);
     GtkWidget *complaintBox = gtk_vbox_new(FALSE, 6);
     GtkAdjustment *adjustment;
@@ -889,6 +966,7 @@ static GtkWidget *citizen_view(UiState *state)
     const char *parkingTitles[] = {"ID", "Name", "Address", "Available"};
     const char *reviewTitles[] = {"Rating", "Comment"};
 
+    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
     gtk_box_pack_start(GTK_BOX(box),
                        make_dashboard_header(state, "CITIZEN"),
                        FALSE, FALSE, 4);
@@ -970,9 +1048,9 @@ static GtkWidget *citizen_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(box), complaintBox, TRUE, TRUE, 4);
 
     state->citizenParkings =
-        make_tree_view(&store, parkingTitles, 4);
+        make_tree_view("Parkings", &store, parkingTitles, 4);
     state->citizenReviews =
-        make_tree_view(&store, reviewTitles, 2);
+        make_tree_view("Reviews", &store, reviewTitles, 2);
     gtk_box_pack_start(GTK_BOX(box), state->citizenParkings,
                        TRUE, TRUE, 4);
     gtk_box_pack_start(GTK_BOX(box), state->citizenReviews,
@@ -1005,18 +1083,27 @@ int ui_run(ParkyData *data, int argc, char **argv)
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), "Parky");
     gtk_window_set_default_size(GTK_WINDOW(window), 760, 620);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 8);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     state.notebook = gtk_notebook_new();
-    gtk_notebook_set_show_tabs(GTK_NOTEBOOK(state.notebook), FALSE);
+    gtk_notebook_set_show_tabs(GTK_NOTEBOOK(state.notebook), TRUE);
+    gtk_notebook_set_scrollable(GTK_NOTEBOOK(state.notebook), TRUE);
     gtk_notebook_append_page(GTK_NOTEBOOK(state.notebook),
-                             login_view(&state), NULL);
+                             login_view(&state),
+                             make_stock_tab("Login",
+                                            GTK_STOCK_DIALOG_AUTHENTICATION));
     gtk_notebook_append_page(GTK_NOTEBOOK(state.notebook),
-                             admin_view(&state), NULL);
+                             admin_view(&state),
+                             make_stock_tab("Admin",
+                                            GTK_STOCK_DIALOG_AUTHENTICATION));
     gtk_notebook_append_page(GTK_NOTEBOOK(state.notebook),
-                             agent_view(&state), NULL);
+                             agent_view(&state),
+                             make_stock_tab("Agent", GTK_STOCK_EDIT));
     gtk_notebook_append_page(GTK_NOTEBOOK(state.notebook),
-                             citizen_view(&state), NULL);
+                             citizen_view(&state),
+                             make_stock_tab("Citizen",
+                                            GTK_STOCK_DIALOG_AUTHENTICATION));
 
     state.status = gtk_statusbar_new();
     {

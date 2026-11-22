@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (Demo Data)
-- **Completed:** Added Tunisian demo seeding for parkings, agents, citizens, reservations, services, reviews, and complaints with first-launch generation.
-- **Next Task:** Verify demo-data refresh across all dashboards and prepare final recruiter-facing documentation.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; all demo records use delimiter-safe underscore-based `.txt` fields.
+- **Active Release:** v1.0.0 (GTK2 Visual Polish)
+- **Completed:** Added stock icons, profile cards with Pango role badges, framed rules-hinted tables, notebook tabs, and consistent padding.
+- **Next Task:** Perform final visual/build verification and prepare recruiter-facing documentation and screenshots.
+- **Blockers/Notes:** `_legacy_raw/` remains excluded; UI polish uses only Ubuntu 18.04-compatible GTK+ 2 APIs.
