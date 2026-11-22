@@ -1,6 +1,7 @@
 #include "ui.h"
 
 #include <gtk/gtk.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -10,6 +11,7 @@
 
 typedef struct {
     ParkyData *data;
+    int activeUserId;
     GtkWidget *notebook;
     GtkWidget *loginEmail;
     GtkWidget *loginPassword;
@@ -29,6 +31,78 @@ typedef struct {
     GtkWidget *complaintSubject;
     GtkWidget *complaintText;
 } UiState;
+
+static void set_status(UiState *state, const char *message);
+static void set_page(UiState *state, int page);
+
+static void show_message(UiState *state, GtkMessageType type,
+                         const char *title, const char *message)
+{
+    GtkWidget *dialog;
+    (void)state;
+    dialog = gtk_message_dialog_new(
+        NULL,
+        GTK_DIALOG_MODAL,
+        type,
+        GTK_BUTTONS_OK,
+        "%s",
+        message);
+    gtk_window_set_title(GTK_WINDOW(dialog), title);
+    gtk_dialog_run(GTK_DIALOG(dialog));
+    gtk_widget_destroy(dialog);
+}
+
+static int contains_auth_delimiter(const char *text)
+{
+    for (; *text != '\0'; ++text) {
+        if (isspace((unsigned char)*text) || *text == '|' ||
+            *text == '\n' || *text == '\r' || *text == '\t') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int valid_auth_field(const char *text)
+{
+    const char *cursor;
+    int length = 0;
+    int hasContent = 0;
+
+    if (text == NULL) {
+        return 0;
+    }
+    for (cursor = text; *cursor != '\0'; ++cursor) {
+        if (!isspace((unsigned char)*cursor)) {
+            ++hasContent;
+        }
+        ++length;
+    }
+    return length >= 3 && hasContent > 0 &&
+           !contains_auth_delimiter(text);
+}
+
+static int valid_email(const char *email)
+{
+    return valid_auth_field(email) &&
+           strchr(email, '@') != NULL &&
+           strchr(email, '.') != NULL;
+}
+
+static void sign_out(UiState *state)
+{
+    state->activeUserId = 0;
+    gtk_entry_set_text(GTK_ENTRY(state->loginEmail), "");
+    gtk_entry_set_text(GTK_ENTRY(state->loginPassword), "");
+    set_page(state, 0);
+    set_status(state, "Signed out");
+}
+
+static void sign_out_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    sign_out((UiState *)user_data);
+}
 
 static GtkWidget *make_labeled_entry(const char *label, GtkWidget **entry)
 {
@@ -59,10 +133,19 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
     int i;
     (void)widget;
 
+    if (!valid_email(email) || !valid_auth_field(password)) {
+        show_message(state, GTK_MESSAGE_ERROR, "Login validation",
+                     "Email and password must contain at least 3 characters "
+                     "and cannot contain whitespace or storage delimiters.");
+        set_status(state, "Login validation failed");
+        return;
+    }
+
     for (i = 0; i < state->data->userCount; ++i) {
         User *user = &state->data->users[i];
         if (strcmp(user->email, email) == 0 &&
             strcmp(user->password, password) == 0) {
+            state->activeUserId = user->id;
             if (user->role == USER_ADMIN) set_page(state, 1);
             else if (user->role == USER_AGENT) set_page(state, 2);
             else set_page(state, 3);
@@ -70,6 +153,9 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
             return;
         }
     }
+    gtk_entry_set_text(GTK_ENTRY(state->loginPassword), "");
+    show_message(state, GTK_MESSAGE_ERROR, "Login failed",
+                 "Invalid email or password.");
     set_status(state, "Invalid email or password");
 }
 
@@ -79,18 +165,62 @@ static void register_clicked(GtkWidget *widget, gpointer user_data)
     User user;
     const char *email = gtk_entry_get_text(GTK_ENTRY(state->loginEmail));
     const char *password = gtk_entry_get_text(GTK_ENTRY(state->loginPassword));
+    const char *at;
+    char username[PARKY_NAME_LENGTH];
+    int i;
     (void)widget;
+
+    if (!valid_email(email) || !valid_auth_field(password)) {
+        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
+                     "Email and password must contain at least 3 characters "
+                     "and cannot contain whitespace or storage delimiters.");
+        set_status(state, "Registration validation failed");
+        return;
+    }
+
+    at = strchr(email, '@');
+    if (at == email) {
+        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
+                     "Email must include a valid username.");
+        return;
+    }
+    snprintf(username, sizeof(username), "%.*s",
+             (int)(at - email), email);
+    if (!valid_auth_field(username)) {
+        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
+                     "Username must contain at least 3 characters.");
+        return;
+    }
+
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (strcmp(state->data->users[i].email, email) == 0 ||
+            strcmp(state->data->users[i].name, username) == 0) {
+            show_message(state, GTK_MESSAGE_ERROR,
+                         "Duplicate account",
+                         "That username or email is already registered.");
+            set_status(state, "Duplicate username or email");
+            return;
+        }
+    }
 
     memset(&user, 0, sizeof(user));
     user.id = state->data->userCount + 1;
-    snprintf(user.name, sizeof(user.name), "Citizen");
+    snprintf(user.name, sizeof(user.name), "%s", username);
     snprintf(user.email, sizeof(user.email), "%s", email);
     snprintf(user.password, sizeof(user.password), "%s", password);
     user.role = USER_CITIZEN;
-    if (citoyen_register(state->data, &user))
+    if (citoyen_register(state->data, &user)) {
         set_status(state, "Citizen account registered");
-    else
+        gtk_entry_set_text(GTK_ENTRY(state->loginPassword), "");
+        show_message(state, GTK_MESSAGE_INFO,
+                     "Registration successful",
+                     "Citizen account registered successfully.");
+    } else {
         set_status(state, "Registration failed");
+        show_message(state, GTK_MESSAGE_ERROR,
+                     "Registration failed",
+                     "Unable to register the citizen account.");
+    }
 }
 
 static void occupancy_clicked(GtkWidget *widget, gpointer user_data)
@@ -298,6 +428,7 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *title = gtk_label_new("Administrator Dashboard");
     GtkWidget *occupancy = gtk_button_new_with_label("View occupancy statistics");
     GtkWidget *resolve = gtk_button_new_with_label("Resolve oldest complaint");
+    GtkWidget *signOut = gtk_button_new_with_label("Sign Out");
     char summary[160];
 
     snprintf(summary, sizeof(summary),
@@ -309,10 +440,13 @@ static GtkWidget *admin_view(UiState *state)
                        FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), occupancy, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), resolve, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), signOut, FALSE, FALSE, 4);
     g_signal_connect(occupancy, "clicked",
                      G_CALLBACK(occupancy_clicked), state);
     g_signal_connect(resolve, "clicked",
                      G_CALLBACK(resolve_complaint_clicked), state);
+    g_signal_connect(signOut, "clicked",
+                     G_CALLBACK(sign_out_clicked), state);
     return box;
 }
 
@@ -323,6 +457,7 @@ static GtkWidget *agent_view(UiState *state)
     GtkWidget *spot = gtk_button_new_with_label("Mark spot reserved");
     GtkWidget *approve = gtk_button_new_with_label("Approve reservation");
     GtkWidget *reject = gtk_button_new_with_label("Reject reservation");
+    GtkWidget *signOut = gtk_button_new_with_label("Sign Out");
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
     gtk_box_pack_start(GTK_BOX(box),
                        gtk_label_new("Spot status | Parking services"),
@@ -330,11 +465,14 @@ static GtkWidget *agent_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(box), spot, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), approve, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), reject, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), signOut, FALSE, FALSE, 4);
     g_signal_connect(spot, "clicked", G_CALLBACK(set_spot_clicked), state);
     g_signal_connect(approve, "clicked",
                      G_CALLBACK(approve_reservation_clicked), state);
     g_signal_connect(reject, "clicked",
                      G_CALLBACK(reject_reservation_clicked), state);
+    g_signal_connect(signOut, "clicked",
+                     G_CALLBACK(sign_out_clicked), state);
     return box;
 }
 
@@ -342,6 +480,7 @@ static GtkWidget *citizen_view(UiState *state)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 6);
     GtkWidget *title = gtk_label_new("Citizen Dashboard");
+    GtkWidget *signOut = gtk_button_new_with_label("Sign Out");
     GtkWidget *search = gtk_button_new_with_label("Search");
     GtkWidget *reserve = gtk_button_new_with_label("Reserve spot");
     GtkWidget *book = gtk_button_new_with_label("Book service");
@@ -353,6 +492,7 @@ static GtkWidget *citizen_view(UiState *state)
     GtkWidget *scroller;
 
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(box), signOut, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box),
                        make_labeled_entry("Parking name",
                                           &state->citizenName),
@@ -441,6 +581,8 @@ static GtkWidget *citizen_view(UiState *state)
                      G_CALLBACK(tariff_changed), state);
     g_signal_connect(state->citizenService, "changed",
                      G_CALLBACK(tariff_changed), state);
+    g_signal_connect(signOut, "clicked",
+                     G_CALLBACK(sign_out_clicked), state);
     update_tariff(state);
     return box;
 }

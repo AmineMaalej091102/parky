@@ -1,4 +1,4 @@
 1 admin admin admin@parky.local 1 0
 2 agent agent agent@parky.local 2 1
 3 citizen citizen citizen@parky.local 3 0
-4 Citizen   3 0
+4 amine amine amine@parky.local 3 0

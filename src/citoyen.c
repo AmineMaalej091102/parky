@@ -4,6 +4,44 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+
+static int contains_whitespace(const char *text)
+{
+    for (; *text != '\0'; ++text) {
+        if (isspace((unsigned char)*text) || *text == '|' ||
+            *text == '\n' || *text == '\r' || *text == '\t') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int valid_auth_field(const char *text)
+{
+    const char *cursor;
+    int hasContent = 0;
+
+    if (text == NULL || (int)strlen(text) < 3) {
+        return 0;
+    }
+    if (contains_whitespace(text)) {
+        return 0;
+    }
+    for (cursor = text; *cursor != '\0'; ++cursor) {
+        if (!isspace((unsigned char)*cursor)) {
+            hasContent = 1;
+        }
+    }
+    return hasContent;
+}
+
+static int valid_email(const char *email)
+{
+    return valid_auth_field(email) &&
+           strchr(email, '@') != NULL &&
+           strchr(email, '.') != NULL;
+}
 
 static int next_id(const void *items, int count, size_t size)
 {
@@ -22,11 +60,16 @@ static int next_id(const void *items, int count, size_t size)
 int citoyen_register(ParkyData *data, const User *user)
 {
     int i;
-    if (data->userCount >= PARKY_MAX_USERS) {
+    if (user == NULL ||
+        data->userCount >= PARKY_MAX_USERS ||
+        !valid_auth_field(user->name) ||
+        !valid_auth_field(user->password) ||
+        !valid_email(user->email)) {
         return 0;
     }
     for (i = 0; i < data->userCount; ++i) {
-        if (strcmp(data->users[i].email, user->email) == 0) {
+        if (strcmp(data->users[i].email, user->email) == 0 ||
+            strcmp(data->users[i].name, user->name) == 0) {
             return 0;
         }
     }
@@ -39,6 +82,10 @@ int citoyen_login(const ParkyData *data, const char *email,
                   const char *password)
 {
     int i;
+    if (data == NULL || !valid_email(email) ||
+        !valid_auth_field(password)) {
+        return 0;
+    }
     for (i = 0; i < data->userCount; ++i) {
         if (data->users[i].role == USER_CITIZEN &&
             strcmp(data->users[i].email, email) == 0 &&
