@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (Business Logic)
-- **Completed:** Added modular admin, agent, and citizen CRUD/reservation/service logic using ASCII text storage.
-- **Next Task:** Build GTK2 screens and bind them to the modular business-logic functions.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; tariff and booking behavior is based on the v1 text model.
+- **Active Release:** v1.0.0 (GTK2 Desktop UI)
+- **Completed:** Added Glade 2.12 XML and GTK2 login, admin, agent, and citizen dashboards wired to business modules.
+- **Next Task:** Polish the UI copy, verify live workflows, and prepare recruiter-facing documentation and screenshots.
+- **Blockers/Notes:** `_legacy_raw/` remains excluded; the UI uses Ubuntu 18.04-compatible GTK+ 2 widgets.

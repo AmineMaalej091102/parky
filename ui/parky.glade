@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<glade-interface>
+  <requires lib="gtk+"/>
+  <widget class="GtkWindow" id="login_window">
+    <property name="title">Parky - Login and Register</property>
+    <property name="default_width">760</property>
+    <property name="default_height">620</property>
+    <child>
+      <widget class="GtkVBox" id="login_layout">
+        <property name="spacing">8</property>
+        <child>
+          <widget class="GtkLabel" id="login_title">
+            <property name="label">Parky - Sign in</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkEntry" id="login_email"/>
+        </child>
+        <child>
+          <widget class="GtkEntry" id="login_password"/>
+        </child>
+        <child>
+          <widget class="GtkButton" id="login_button">
+            <property name="label">Sign in</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkButton" id="register_button">
+            <property name="label">Register as citizen</property>
+          </widget>
+        </child>
+      </widget>
+    </child>
+  </widget>
+  <widget class="GtkWindow" id="admin_window">
+    <property name="title">Parky - Admin Dashboard</property>
+    <child>
+      <widget class="GtkNotebook" id="admin_notebook">
+        <child>
+          <widget class="GtkLabel" id="admin_users">
+            <property name="label">Users and agents CRUD</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="admin_parkings">
+            <property name="label">Parking CRUD and occupancy statistics</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="admin_complaints">
+            <property name="label">Complaint list and resolution</property>
+          </widget>
+        </child>
+      </widget>
+    </child>
+  </widget>
+  <widget class="GtkWindow" id="agent_window">
+    <property name="title">Parky - Agent Dashboard</property>
+    <child>
+      <widget class="GtkNotebook" id="agent_notebook">
+        <child>
+          <widget class="GtkLabel" id="agent_spots">
+            <property name="label">Available / occupied / reserved spot status</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="agent_services">
+            <property name="label">Parking service management</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="agent_reservations">
+            <property name="label">Approve or reject citizen reservations</property>
+          </widget>
+        </child>
+      </widget>
+    </child>
+  </widget>
+  <widget class="GtkWindow" id="citizen_window">
+    <property name="title">Parky - Citizen Dashboard</property>
+    <child>
+      <widget class="GtkNotebook" id="citizen_notebook">
+        <child>
+          <widget class="GtkLabel" id="citizen_search">
+            <property name="label">Multi-criteria parking search</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="citizen_booking">
+            <property name="label">Spot and service booking with live tariff</property>
+          </widget>
+        </child>
+        <child>
+          <widget class="GtkLabel" id="citizen_feedback">
+            <property name="label">Reviews and complaints</property>
+          </widget>
+        </child>
+      </widget>
+    </child>
+  </widget>
+</glade-interface>
