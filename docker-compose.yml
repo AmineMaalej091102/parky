@@ -1,0 +1,13 @@
+services:
+  parky:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - .:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+    stdin_open: true
+    tty: true

@@ -1,5 +1,5 @@
-﻿# Current Status
+# Current Status
 - **Active Release:** v1.0.0 (Setup & Containerization)
-- **Completed:** Folder architecture, .ai/ context, skills, and IDE bridge rules.
-- **Next Task:** Create Dockerfile (Ubuntu 18.04 + Glade 2.12.2), docker-compose.yml, and Makefile.
-- **Blockers/Notes:** Legacy source files to be placed in _legacy_raw/ before migration.
+- **Completed:** Dockerfile (Ubuntu 18.04 + Glade 2.12.2), docker-compose.yml, and Makefile with source checks.
+- **Next Task:** Build v1.0.0 from scratch starting with `include/models.h`, `include/storage.h`, and `src/storage.c` (`.txt` persistence).
+- **Blockers/Notes:** Coding from scratch (no migration from `_legacy_raw/`).
