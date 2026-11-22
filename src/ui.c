@@ -125,6 +125,7 @@ static GtkWidget *make_labeled_entry(const char *label, GtkWidget **entry)
 {
     GtkWidget *box = gtk_hbox_new(FALSE, 8);
     GtkWidget *text = gtk_entry_new();
+    gtk_widget_set_size_request(text, -1, 32);
     gtk_box_pack_start(GTK_BOX(box), gtk_label_new(label),
                        FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box), text, TRUE, TRUE, 0);
@@ -761,12 +762,10 @@ static void mark_available_clicked(GtkWidget *widget, gpointer user_data)
     }
     for (i = 0; i < state->data->parkingCount; ++i) {
         if (state->data->parkings[i].id == parkingId) {
-            if (state->data->parkings[i].availableSpots <
-                state->data->parkings[i].totalSpots)
-                ++state->data->parkings[i].availableSpots;
-            if (storage_save(state->data))
+            if (agent_set_spot_status(state->data, parkingId,
+                                      PARKING_AVAILABLE))
                 show_message(state, GTK_MESSAGE_INFO, "Spot available",
-                             "One parking spot was marked available.");
+                             "The parking is marked available.");
             refresh_agent_tables(state);
             refresh_citizen_tables(state);
             return;
@@ -787,11 +786,10 @@ static void mark_occupied_clicked(GtkWidget *widget, gpointer user_data)
     }
     for (i = 0; i < state->data->parkingCount; ++i) {
         if (state->data->parkings[i].id == parkingId) {
-            if (state->data->parkings[i].availableSpots > 0)
-                --state->data->parkings[i].availableSpots;
-            if (storage_save(state->data))
+            if (agent_set_spot_status(state->data, parkingId,
+                                      PARKING_OCCUPIED))
                 show_message(state, GTK_MESSAGE_INFO, "Spot occupied",
-                             "One parking spot was marked occupied.");
+                             "The parking is marked occupied.");
             refresh_agent_tables(state);
             refresh_citizen_tables(state);
             return;
@@ -1103,12 +1101,6 @@ static GtkWidget *login_view(UiState *state)
         "Sign in", GTK_STOCK_DIALOG_AUTHENTICATION);
     GtkWidget *registerBtn = make_stock_button(
         "Register as citizen", GTK_STOCK_ADD);
-    GtkWidget *hint = gtk_label_new(
-        "Demo accounts:\n"
-        "Admin: admin@parky.local / admin\n"
-        "Agent: agent@parky.local / agent\n"
-        "Citizen: citizen@parky.local / citizen");
-
     gtk_container_set_border_width(GTK_CONTAINER(box), 16);
     gtk_container_set_border_width(GTK_CONTAINER(card), 12);
     gtk_label_set_markup(GTK_LABEL(title),
@@ -1129,7 +1121,6 @@ static GtkWidget *login_view(UiState *state)
     style_button(loginBtn, "#287A4D", "#FFFFFF");
     style_button(registerBtn, "#1F5FBF", "#FFFFFF");
     gtk_box_pack_start(GTK_BOX(cardBox), registerRow, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(cardBox), hint, FALSE, FALSE, 10);
     gtk_container_add(GTK_CONTAINER(card), cardBox);
     gtk_box_pack_start(GTK_BOX(box), card, TRUE, TRUE, 40);
     gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), FALSE);
@@ -1226,9 +1217,9 @@ static GtkWidget *agent_view(UiState *state)
     GtkWidget *parkingText = gtk_label_new("");
     GtkWidget *actions = gtk_hbox_new(TRUE, 8);
     GtkWidget *available = make_stock_button(
-        "Mark Spot Available (+1)", GTK_STOCK_ADD);
+        "Mark Parking Available", GTK_STOCK_ADD);
     GtkWidget *occupied = make_stock_button(
-        "Mark Spot Occupied (-1)", GTK_STOCK_DELETE);
+        "Mark Parking Occupied", GTK_STOCK_DELETE);
     GtkWidget *approve = make_stock_button(
         "Approve Selected Reservation", GTK_STOCK_APPLY);
     GtkWidget *reject = make_stock_button(
@@ -1373,6 +1364,7 @@ static GtkWidget *citizen_view(UiState *state)
     GtkWidget *bookingSide = gtk_vbox_new(FALSE, 6);
     GtkWidget *reservationsTab = gtk_vbox_new(FALSE, 8);
     GtkWidget *feedbackTab = gtk_hbox_new(TRUE, 8);
+    GtkWidget *profileTab = gtk_vbox_new(FALSE, 12);
     GtkWidget *reviewSide = gtk_vbox_new(FALSE, 8);
     GtkWidget *complaintSide = gtk_vbox_new(FALSE, 8);
     GtkWidget *search = make_stock_button("Search", GTK_STOCK_FIND);
@@ -1439,6 +1431,7 @@ static GtkWidget *citizen_view(UiState *state)
                        FALSE, FALSE, 2);
 
     state->citizenService = gtk_combo_box_new_text();
+    gtk_widget_set_size_request(state->citizenService, -1, 32);
     gtk_combo_box_append_text(GTK_COMBO_BOX(state->citizenService),
                               "No extra service");
     gtk_combo_box_append_text(GTK_COMBO_BOX(state->citizenService),
@@ -1515,6 +1508,45 @@ static GtkWidget *citizen_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(feedbackTab), state->citizenReviews,
                        TRUE, TRUE, 8);
 
+    {
+        GtkWidget *profileCard = gtk_frame_new("Citizen Profile");
+        GtkWidget *profileBox = gtk_vbox_new(FALSE, 8);
+        GtkWidget *profileName = gtk_label_new(NULL);
+        GtkWidget *profileEmail = gtk_label_new(NULL);
+        GtkWidget *profileRole = gtk_label_new(NULL);
+        char profileText[256];
+        int i;
+        const char *name = "Unknown";
+        const char *email = "Unknown";
+
+        for (i = 0; i < state->data->userCount; ++i) {
+            if (state->data->users[i].id == state->activeUserId) {
+                name = state->data->users[i].name;
+                email = state->data->users[i].email;
+                break;
+            }
+        }
+        snprintf(profileText, sizeof(profileText),
+                 "<span size='x-large' weight='bold'>%s</span>", name);
+        gtk_label_set_markup(GTK_LABEL(profileName), profileText);
+        snprintf(profileText, sizeof(profileText),
+                 "<span>Email: %s</span>", email);
+        gtk_label_set_markup(GTK_LABEL(profileEmail), profileText);
+        gtk_label_set_markup(GTK_LABEL(profileRole),
+            "<span background='#287A4D' foreground='white' "
+            "weight='bold'>  CITIZEN  </span>");
+        gtk_box_pack_start(GTK_BOX(profileBox), profileName,
+                           FALSE, FALSE, 8);
+        gtk_box_pack_start(GTK_BOX(profileBox), profileEmail,
+                           FALSE, FALSE, 4);
+        gtk_box_pack_start(GTK_BOX(profileBox), profileRole,
+                           FALSE, FALSE, 4);
+        gtk_container_set_border_width(GTK_CONTAINER(profileCard), 12);
+        gtk_container_add(GTK_CONTAINER(profileCard), profileBox);
+        gtk_box_pack_start(GTK_BOX(profileTab), profileCard,
+                           FALSE, FALSE, 20);
+    }
+
     gtk_notebook_append_page(GTK_NOTEBOOK(inner), findTab,
                              make_stock_tab("Find & Book Parking",
                                             GTK_STOCK_FIND));
@@ -1524,6 +1556,9 @@ static GtkWidget *citizen_view(UiState *state)
     gtk_notebook_append_page(GTK_NOTEBOOK(inner), feedbackTab,
                              make_stock_tab("Reviews & Complaints",
                                             GTK_STOCK_EDIT));
+    gtk_notebook_append_page(GTK_NOTEBOOK(inner), profileTab,
+                             make_stock_tab("My Profile",
+                                            GTK_STOCK_DIALOG_AUTHENTICATION));
     gtk_box_pack_start(GTK_BOX(box), inner, TRUE, TRUE, 4);
 
     g_signal_connect(search, "clicked", G_CALLBACK(search_clicked), state);

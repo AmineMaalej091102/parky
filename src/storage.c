@@ -73,24 +73,31 @@ int generate_demo_data(ParkyData *data)
 {
     static const char *parkingNames[] = {
         "Tunis_Centre", "Lac_1", "Ariana", "Menzah",
-        "La_Marsa", "Centre_Urbain_Nord"
+        "La_Marsa", "Centre_Urbain_Nord", "Ennasr", "Gammarth",
+        "La_Goulette", "Le_Bardo", "Sidi_Bou_Said", "Manar_1"
     };
     static const char *parkingAddresses[] = {
         "Tunis_Centre_Ville", "Berges_du_Lac_1", "Ariana_City",
-        "El_Menzah_4", "La_Marsa_Centre", "Les_Berges_du_Lac_2"
+        "El_Menzah_4", "La_Marsa_Centre", "Les_Berges_du_Lac_2",
+        "Ennasr_2", "Gammarth_Centre", "La_Goulette_Port",
+        "Le_Bardo_City", "Sidi_Bou_Said_Village", "El_Menar"
     };
     static const char *agentNames[] = {
-        "agent_sami", "agent_nadia", "agent_amine"
+        "agent_sami", "agent_nadia", "agent_amine",
+        "agent_leila", "agent_youssef"
     };
     static const char *agentEmails[] = {
-        "sami@parky.tn", "nadia@parky.tn", "amine@parky.tn"
+        "sami@parky.tn", "nadia@parky.tn", "amine@parky.tn",
+        "leila@parky.tn", "youssef@parky.tn"
     };
     static const char *citizenNames[] = {
-        "yasmine", "karim", "ines", "mehdi", "salma"
+        "yasmine", "karim", "ines", "mehdi", "salma",
+        "rami", "amira", "nour"
     };
     static const char *citizenEmails[] = {
         "yasmine@demo.tn", "karim@demo.tn", "ines@demo.tn",
-        "mehdi@demo.tn", "salma@demo.tn"
+        "mehdi@demo.tn", "salma@demo.tn", "rami@demo.tn",
+        "amira@demo.tn", "nour@demo.tn"
     };
     int i;
 
@@ -103,7 +110,7 @@ int generate_demo_data(ParkyData *data)
     data->users[0].role = USER_ADMIN;
 
     data->userCount = 1;
-    for (i = 0; i < 3; ++i) {
+    for (i = 0; i < 5; ++i) {
         int id = data->userCount + 1;
         data->users[data->userCount].id = id;
         strcpy(data->users[data->userCount].name, agentNames[i]);
@@ -113,7 +120,7 @@ int generate_demo_data(ParkyData *data)
         data->users[data->userCount].assignedParkingId = i + 1;
         ++data->userCount;
     }
-    for (i = 0; i < 5; ++i) {
+    for (i = 0; i < 8; ++i) {
         int id = data->userCount + 1;
         data->users[data->userCount].id = id;
         strcpy(data->users[data->userCount].name, citizenNames[i]);
@@ -123,9 +130,9 @@ int generate_demo_data(ParkyData *data)
         ++data->userCount;
     }
 
-    for (i = 0; i < 6; ++i) {
-        int spots = 80 + i * 25;
-        int occupied = 18 + i * 7;
+    for (i = 0; i < 12; ++i) {
+        int spots = 60 + i * 20;
+        int occupied = 12 + i * 4;
         data->parkings[i].id = i + 1;
         strcpy(data->parkings[i].name, parkingNames[i]);
         strcpy(data->parkings[i].address, parkingAddresses[i]);
@@ -133,67 +140,75 @@ int generate_demo_data(ParkyData *data)
         data->parkings[i].availableSpots = spots - occupied;
         data->parkings[i].status = 1;
     }
-    data->parkingCount = 6;
+    data->parkingCount = 12;
 
     {
         static const char *serviceNames[] = {
-            "Car_Wash", "EV_Charging", "Covered_VIP"
+            "Car_Wash", "EV_Charging", "Covered_VIP",
+            "Wheel_Service", "Airport_Shuttle", "Reserved_Vehicle_Care"
         };
         static const char *serviceDescriptions[] = {
             "Exterior_and_interior_wash",
             "Fast_Electric_Vehicle_Charging",
-            "Covered_reserved_parking"
+            "Covered_reserved_parking",
+            "Tire_and_wheel_check",
+            "Short_shuttle_to_terminal",
+            "Indoor_vehicle_cleaning"
         };
-        static const float prices[] = {12.0f, 18.0f, 25.0f};
-        for (i = 0; i < 3; ++i) {
+        static const float prices[] = {
+            12.0f, 18.0f, 25.0f, 16.0f, 20.0f, 30.0f
+        };
+        for (i = 0; i < 6; ++i) {
             data->services[i].id = i + 1;
             strcpy(data->services[i].name, serviceNames[i]);
             strcpy(data->services[i].description, serviceDescriptions[i]);
             data->services[i].price = prices[i];
             data->services[i].status = 1;
         }
-        data->serviceCount = 3;
+        data->serviceCount = 6;
     }
 
-    for (i = 0; i < 8; ++i) {
+    for (i = 0; i < 18; ++i) {
         data->reservations[i].id = i + 1;
-        data->reservations[i].citizenId = 5 + (i % 5);
-        data->reservations[i].parkingId = 1 + (i % 6);
+        data->reservations[i].citizenId = 7 + (i % 8);
+        data->reservations[i].parkingId = 1 + (i % 12);
         strcpy(data->reservations[i].date,
-               i % 2 == 0 ? "2026-12-01" : "2026-12-02");
+               i % 3 == 0 ? "2026-12-01" :
+               i % 3 == 1 ? "2026-12-02" : "2026-12-03");
         strcpy(data->reservations[i].time,
                i % 3 == 0 ? "09:00" : i % 3 == 1 ? "14:30" : "18:00");
         data->reservations[i].spotNumber = 10 + i;
         data->reservations[i].status =
-            i < 3 ? 0 : i < 6 ? 1 : 3;
+            i < 6 ? 0 : i < 13 ? 1 : i < 16 ? 3 : 2;
     }
-    data->reservationCount = 8;
+    data->reservationCount = 18;
 
-    for (i = 0; i < 5; ++i) {
+    for (i = 0; i < 10; ++i) {
         data->reviews[i].id = i + 1;
-        data->reviews[i].citizenId = 5 + i;
-        data->reviews[i].parkingId = 1 + i;
+        data->reviews[i].citizenId = 7 + (i % 8);
+        data->reviews[i].parkingId = 1 + (i % 12);
         data->reviews[i].rating = 3 + (i % 3);
         snprintf(data->reviews[i].comment,
                  sizeof(data->reviews[i].comment),
                  i % 2 == 0 ? "Clean_and_secure_parking" :
                               "Easy_access_and_helpful_staff");
     }
-    data->reviewCount = 5;
+    data->reviewCount = 10;
 
-    for (i = 0; i < 4; ++i) {
+    for (i = 0; i < 8; ++i) {
         data->complaints[i].id = i + 1;
-        data->complaints[i].citizenId = 5 + i;
+        data->complaints[i].citizenId = 7 + (i % 8);
         snprintf(data->complaints[i].subject,
                  sizeof(data->complaints[i].subject),
                  i % 2 == 0 ? "Spot_availability" : "Payment_issue");
         snprintf(data->complaints[i].description,
                  sizeof(data->complaints[i].description),
-                 i % 2 == 0 ? "Reserved_spot_was_occupied" :
-                              "Incorrect_tariff_displayed");
-        data->complaints[i].status = i == 3 ? 2 : 0;
+                 i % 3 == 0 ? "Reserved_spot_was_occupied" :
+                 i % 3 == 1 ? "Incorrect_tariff_displayed" :
+                              "Parking_signage_needs_update");
+        data->complaints[i].status = i == 3 || i == 7 ? 2 : 0;
     }
-    data->complaintCount = 4;
+    data->complaintCount = 8;
 
     return storage_save(data);
 }
