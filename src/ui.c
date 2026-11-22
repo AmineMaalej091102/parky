@@ -8,6 +8,7 @@
 #include "admin.h"
 #include "agent.h"
 #include "citoyen.h"
+#include "storage.h"
 
 typedef struct {
     ParkyData *data;
@@ -305,10 +306,16 @@ static void refresh_agent_tables(UiState *state)
     store = tree_store(state, state->agentReservations);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->reservationCount; ++i) {
-        const char *status = state->data->reservations[i].status ==
-                             RESERVATION_APPROVED ? "Approved" :
-                             state->data->reservations[i].status ==
-                             RESERVATION_REJECTED ? "Rejected" : "Pending";
+        const char *status;
+        if (state->data->reservations[i].status == RESERVATION_APPROVED)
+            status = "Approved";
+        else if (state->data->reservations[i].status ==
+                 RESERVATION_REJECTED)
+            status = "Rejected";
+        else if (state->data->reservations[i].status == 3)
+            status = "Completed";
+        else
+            status = "Pending";
         gtk_list_store_append(store, &iter);
         snprintf(value, sizeof(value), "%d", state->data->reservations[i].id);
         gtk_list_store_set(store, &iter, 0, value, 1,
@@ -493,6 +500,23 @@ static void resolve_complaint_clicked(GtkWidget *widget, gpointer user_data)
     else
         set_status(state, "No complaint to resolve");
     refresh_admin_tables(state);
+}
+
+static void generate_demo_data_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    (void)widget;
+    if (confirm_destructive_action(state, "Generate demo data?",
+                                   "This replaces all existing text data.") &&
+        generate_demo_data(state->data)) {
+        show_message(state, GTK_MESSAGE_INFO, "Demo data generated",
+                     "Tunisian parkings, users, reservations, services, "
+                     "reviews and complaints are ready.");
+        refresh_admin_tables(state);
+        refresh_agent_tables(state);
+        refresh_citizen_tables(state);
+        set_status(state, "Demo data generated and saved");
+    }
 }
 
 static void delete_user_clicked(GtkWidget *widget, gpointer user_data)
@@ -768,6 +792,7 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *deleteUser = gtk_button_new_with_label("Delete first user");
     GtkWidget *deleteParking = gtk_button_new_with_label("Delete first parking");
     GtkWidget *deleteAgent = gtk_button_new_with_label("Delete first agent");
+    GtkWidget *demoData = gtk_button_new_with_label("Generate Demo Data");
     GtkWidget *actions = gtk_hbox_new(TRUE, 6);
     GtkListStore *store;
     const char *userTitles[] = {"ID", "Name", "Email", "Role"};
@@ -795,6 +820,7 @@ static GtkWidget *admin_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(actions), deleteUser, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions), deleteParking, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions), deleteAgent, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(actions), demoData, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(box), actions, FALSE, FALSE, 4);
     g_signal_connect(occupancy, "clicked",
                      G_CALLBACK(occupancy_clicked), state);
@@ -806,6 +832,8 @@ static GtkWidget *admin_view(UiState *state)
                      G_CALLBACK(delete_parking_clicked), state);
     g_signal_connect(deleteAgent, "clicked",
                      G_CALLBACK(delete_agent_clicked), state);
+    g_signal_connect(demoData, "clicked",
+                     G_CALLBACK(generate_demo_data_clicked), state);
     refresh_admin_tables(state);
     return box;
 }

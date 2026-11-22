@@ -1,1 +1,3 @@
-1 Car_Wash Basic_exterior_wash 10.00 1
+1 Car_Wash Exterior_and_interior_wash 12.00 1
+2 EV_Charging Fast_Electric_Vehicle_Charging 18.00 1
+3 Covered_VIP Covered_reserved_parking 25.00 1

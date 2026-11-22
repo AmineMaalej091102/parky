@@ -1,0 +1,4 @@
+1 5 Spot_availability Reserved_spot_was_occupied 0
+2 6 Payment_issue Incorrect_tariff_displayed 0
+3 7 Spot_availability Reserved_spot_was_occupied 0
+4 8 Payment_issue Incorrect_tariff_displayed 2

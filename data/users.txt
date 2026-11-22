@@ -1,4 +1,9 @@
 1 admin admin admin@parky.local 1 0
-2 agent agent agent@parky.local 2 1
-3 citizen citizen citizen@parky.local 3 0
-4 amine amine amine@parky.local 3 0
+2 agent_sami agent123 sami@parky.tn 2 1
+3 agent_nadia agent123 nadia@parky.tn 2 2
+4 agent_amine agent123 amine@parky.tn 2 3
+5 yasmine citizen123 yasmine@demo.tn 3 0
+6 karim citizen123 karim@demo.tn 3 0
+7 ines citizen123 ines@demo.tn 3 0
+8 mehdi citizen123 mehdi@demo.tn 3 0
+9 salma citizen123 salma@demo.tn 3 0
