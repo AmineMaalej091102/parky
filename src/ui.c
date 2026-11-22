@@ -162,8 +162,40 @@ static GtkWidget *make_stock_tab(const char *label, const char *stock)
     return tab;
 }
 
+static void style_button(GtkWidget *button, const char *background,
+                         const char *foreground)
+{
+    GdkColor bg;
+    GdkColor fg;
+    if (gdk_color_parse(background, &bg))
+        gtk_widget_modify_bg(button, GTK_STATE_NORMAL, &bg);
+    if (gdk_color_parse(foreground, &fg))
+        gtk_widget_modify_fg(button, GTK_STATE_NORMAL, &fg);
+}
+
+static GtkWidget *make_parky_banner(void)
+{
+    GtkWidget *event = gtk_event_box_new();
+    GtkWidget *box = gtk_hbox_new(FALSE, 8);
+    GtkWidget *logo = gtk_image_new_from_stock(
+        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    GtkWidget *title = gtk_label_new(NULL);
+    GdkColor navy;
+    gdk_color_parse("#1B2A4A", &navy);
+    gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &navy);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 10);
+    gtk_label_set_markup(GTK_LABEL(title),
+        "<span foreground='white' size='large' weight='bold'>"
+        "PARKY - Smart Parking Management</span>");
+    gtk_box_pack_start(GTK_BOX(box), logo, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 4);
+    gtk_container_add(GTK_CONTAINER(event), box);
+    return event;
+}
+
 static GtkWidget *make_dashboard_header(UiState *state, const char *role)
 {
+    GtkWidget *event = gtk_event_box_new();
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
     GtkWidget *profile = gtk_hbox_new(FALSE, 6);
     GtkWidget *avatar = gtk_image_new_from_stock(
@@ -177,6 +209,10 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     char identityMarkup[128];
     const char *badgeColor;
     int i;
+    GdkColor navy;
+    gdk_color_parse("#1B2A4A", &navy);
+    gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &navy);
+    gtk_container_set_border_width(GTK_CONTAINER(header), 8);
 
     for (i = 0; i < state->data->userCount; ++i) {
         if (state->data->users[i].id == state->activeUserId) {
@@ -187,12 +223,13 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     snprintf(identityText, sizeof(identityText),
              "Signed in: %s", name);
     snprintf(identityMarkup, sizeof(identityMarkup),
-             "<span weight='bold'>%s</span>", identityText);
+             "<span foreground='white' weight='bold'>%s</span>",
+             identityText);
     gtk_label_set_markup(GTK_LABEL(identity), identityMarkup);
     badgeColor = strcmp(role, "ADMIN") == 0 ? "#1F5FBF" :
                  strcmp(role, "AGENT") == 0 ? "#287A4D" : "#8A5A00";
     snprintf(badgeMarkup, sizeof(badgeMarkup),
-             "<span foreground='%s' weight='bold'>  %s  </span>",
+             "<span background='%s' foreground='white' weight='bold'>  %s  </span>",
              badgeColor, role);
     gtk_label_set_markup(GTK_LABEL(badge), badgeMarkup);
     if (strcmp(role, "ADMIN") == 0) state->adminIdentity = identity;
@@ -203,9 +240,11 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
     gtk_box_pack_end(GTK_BOX(header), signOut, FALSE, FALSE, 8);
+    style_button(signOut, "#F4F7FB", "#1B2A4A");
+    gtk_container_add(GTK_CONTAINER(event), header);
     g_signal_connect(signOut, "clicked",
                      G_CALLBACK(sign_out_clicked), state);
-    return header;
+    return event;
 }
 
 static int confirm_destructive_action(UiState *state,
@@ -249,7 +288,8 @@ static void refresh_dashboard_identity(UiState *state)
     }
     snprintf(identityText, sizeof(identityText), "Signed in: %s", name);
     snprintf(identityMarkup, sizeof(identityMarkup),
-             "<span weight='bold'>%s</span>", identityText);
+             "<span foreground='white' weight='bold'>%s</span>",
+             identityText);
     if (state->adminIdentity != NULL)
         gtk_label_set_markup(GTK_LABEL(state->adminIdentity), identityMarkup);
     if (state->agentIdentity != NULL)
@@ -506,20 +546,24 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
     const char *email = gtk_entry_get_text(GTK_ENTRY(state->loginEmail));
     const char *password = gtk_entry_get_text(GTK_ENTRY(state->loginPassword));
     int i;
+    int emailFound = 0;
     (void)widget;
 
     if (!valid_email(email) || !valid_auth_field(password)) {
-        show_message(state, GTK_MESSAGE_ERROR, "Login validation",
-                     "Email and password must contain at least 3 characters "
-                     "and cannot contain whitespace or storage delimiters.");
+        show_message(state, GTK_MESSAGE_ERROR, "Missing or invalid credentials",
+                     email[0] == '\0' || password[0] == '\0'
+                     ? "Enter both your email and password before signing in."
+                     : "Credentials must be at least 3 characters and cannot contain spaces or '|' separators.");
         set_status(state, "Login validation failed");
         return;
     }
 
     for (i = 0; i < state->data->userCount; ++i) {
         User *user = &state->data->users[i];
-        if (strcmp(user->email, email) == 0 &&
-            strcmp(user->password, password) == 0) {
+        if (strcmp(user->email, email) == 0) {
+            emailFound = 1;
+            if (strcmp(user->password, password) != 0)
+                continue;
             state->activeUserId = user->id;
             refresh_dashboard_identity(state);
             if (user->role == USER_ADMIN) {
@@ -537,9 +581,15 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
         }
     }
     gtk_entry_set_text(GTK_ENTRY(state->loginPassword), "");
-    show_message(state, GTK_MESSAGE_ERROR, "Login failed",
-                 "Invalid email or password.");
-    set_status(state, "Invalid email or password");
+    if (!emailFound) {
+        show_message(state, GTK_MESSAGE_ERROR, "Unknown account",
+                     "No PARKY account uses this email. Check the address or register as a citizen.");
+        set_status(state, "Unknown account");
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Incorrect password",
+                     "The email is valid, but the password is not. Please try again.");
+        set_status(state, "Incorrect password");
+    }
 }
 
 static void register_clicked(GtkWidget *widget, gpointer user_data)
@@ -797,6 +847,18 @@ static void send_agent_complaint_clicked(GtkWidget *widget,
     (void)widget;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    if (subject[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Empty complaint subject",
+                     "Add a short subject describing the complaint.");
+        g_free(text);
+        return;
+    }
+    if (text == NULL || text[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Empty complaint",
+                     "Describe the problem before sending the complaint.");
+        g_free(text);
+        return;
+    }
     if (subject[0] == '\0' || text[0] == '\0') {
         show_message(state, GTK_MESSAGE_ERROR, "Complaint validation",
                      "Enter a subject and description.");
@@ -823,8 +885,11 @@ static void approve_reservation_clicked(GtkWidget *widget, gpointer user_data)
         agent_resolve_reservation(state->data,
                                   reservationId, 1))
         set_status(state, "Selected reservation approved");
-    else
-        set_status(state, "Select a reservation to approve");
+    else {
+        show_message(state, GTK_MESSAGE_ERROR, "No reservation selected",
+                     "Select a reservation in the table before approving it.");
+        set_status(state, "No reservation selected");
+    }
     refresh_agent_tables(state);
 }
 
@@ -848,7 +913,9 @@ static void reject_reservation_clicked(GtkWidget *widget, gpointer user_data)
             set_status(state, "Selected reservation rejected");
         }
     } else {
-        set_status(state, "No reservation to reject");
+        show_message(state, GTK_MESSAGE_ERROR, "No reservation selected",
+                     "Select a reservation in the table before rejecting it.");
+        set_status(state, "No reservation selected");
     }
     refresh_agent_tables(state);
 }
@@ -895,7 +962,34 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
     UiState *state = (UiState *)user_data;
     int parkingId = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenParking)));
     int spot = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenSpot)));
+    int i;
+    int found = 0;
+    int full = 0;
     (void)widget;
+    if (parkingId <= 0) {
+        show_message(state, GTK_MESSAGE_ERROR, "No parking selected",
+                     "Enter a valid parking ID or select a parking from the table.");
+        set_status(state, "No parking selected");
+        return;
+    }
+    for (i = 0; i < state->data->parkingCount; ++i) {
+        if (state->data->parkings[i].id == parkingId) {
+            found = 1;
+            full = state->data->parkings[i].availableSpots <= 0;
+            break;
+        }
+    }
+    if (!found) {
+        show_message(state, GTK_MESSAGE_ERROR, "Parking not found",
+                     "The entered parking ID does not exist.");
+        return;
+    }
+    if (full) {
+        show_message(state, GTK_MESSAGE_ERROR, "Parking is full",
+                     "This parking has no available spots. Choose another parking.");
+        set_status(state, "Parking is full");
+        return;
+    }
     if (citoyen_reserve_spot(state->data, state->activeUserId, parkingId,
                              gtk_entry_get_text(GTK_ENTRY(state->citizenDate)),
                              gtk_entry_get_text(GTK_ENTRY(state->citizenTime)),
@@ -946,6 +1040,18 @@ static void review_clicked(GtkWidget *widget, gpointer user_data)
     (void)widget;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     comment = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    if (parkingId <= 0) {
+        show_message(state, GTK_MESSAGE_ERROR, "No parking selected",
+                     "Enter the parking ID you want to review.");
+        g_free(comment);
+        return;
+    }
+    if (comment == NULL || comment[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Empty review",
+                     "Write a short review before submitting it.");
+        g_free(comment);
+        return;
+    }
     if (citoyen_submit_review(state->data, state->activeUserId,
                               parkingId, rating, comment)) {
         gtk_text_buffer_set_text(buffer, "", 0);
@@ -989,7 +1095,9 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
 static GtkWidget *login_view(UiState *state)
 {
     GtkWidget *box = gtk_vbox_new(FALSE, 10);
-    GtkWidget *title = gtk_label_new("Parky - Sign in");
+    GtkWidget *card = gtk_frame_new("Secure Access");
+    GtkWidget *cardBox = gtk_vbox_new(FALSE, 10);
+    GtkWidget *title = gtk_label_new(NULL);
     GtkWidget *registerRow;
     GtkWidget *loginBtn = make_stock_button(
         "Sign in", GTK_STOCK_DIALOG_AUTHENTICATION);
@@ -1002,19 +1110,28 @@ static GtkWidget *login_view(UiState *state)
         "Citizen: citizen@parky.local / citizen");
 
     gtk_container_set_border_width(GTK_CONTAINER(box), 16);
-    gtk_misc_set_alignment(GTK_MISC(title), 0.0, 0.5);
-    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(box),
+    gtk_container_set_border_width(GTK_CONTAINER(card), 12);
+    gtk_label_set_markup(GTK_LABEL(title),
+        "<span size='x-large' weight='bold'>Welcome to PARKY</span>");
+    gtk_misc_set_alignment(GTK_MISC(title), 0.5, 0.5);
+    gtk_box_pack_start(GTK_BOX(cardBox), make_parky_banner(),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(cardBox), title, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(cardBox),
                        make_labeled_entry("Email", &state->loginEmail),
                        FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box),
+    gtk_box_pack_start(GTK_BOX(cardBox),
                        make_labeled_entry("Password", &state->loginPassword),
                        FALSE, FALSE, 0);
     registerRow = gtk_hbox_new(TRUE, 8);
     gtk_box_pack_start(GTK_BOX(registerRow), loginBtn, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(registerRow), registerBtn, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(box), registerRow, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), hint, FALSE, FALSE, 10);
+    style_button(loginBtn, "#287A4D", "#FFFFFF");
+    style_button(registerBtn, "#1F5FBF", "#FFFFFF");
+    gtk_box_pack_start(GTK_BOX(cardBox), registerRow, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(cardBox), hint, FALSE, FALSE, 10);
+    gtk_container_add(GTK_CONTAINER(card), cardBox);
+    gtk_box_pack_start(GTK_BOX(box), card, TRUE, TRUE, 40);
     gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), FALSE);
     g_signal_connect(loginBtn, "clicked", G_CALLBACK(login_clicked), state);
     g_signal_connect(registerBtn, "clicked",
@@ -1048,6 +1165,12 @@ static GtkWidget *admin_view(UiState *state)
     char summary[160];
 
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
+    style_button(occupancy, "#1F5FBF", "#FFFFFF");
+    style_button(resolve, "#287A4D", "#FFFFFF");
+    style_button(deleteUser, "#B33A3A", "#FFFFFF");
+    style_button(deleteParking, "#B33A3A", "#FFFFFF");
+    style_button(deleteAgent, "#B33A3A", "#FFFFFF");
+    style_button(demoData, "#F2A900", "#1B2A4A");
     gtk_container_set_border_width(GTK_CONTAINER(left), 8);
     gtk_container_set_border_width(GTK_CONTAINER(right), 8);
     snprintf(summary, sizeof(summary),
@@ -1164,6 +1287,12 @@ static GtkWidget *agent_view(UiState *state)
     gtk_widget_set_size_request(reject, -1, 40);
     gtk_widget_set_size_request(addService, -1, 40);
     gtk_widget_set_size_request(sendComplaint, -1, 40);
+    style_button(available, "#287A4D", "#FFFFFF");
+    style_button(occupied, "#F2A900", "#1B2A4A");
+    style_button(approve, "#287A4D", "#FFFFFF");
+    style_button(reject, "#B33A3A", "#FFFFFF");
+    style_button(addService, "#1F5FBF", "#FFFFFF");
+    style_button(sendComplaint, "#B33A3A", "#FFFFFF");
     gtk_box_pack_start(GTK_BOX(actions), available, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions), occupied, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(actions), approve, TRUE, TRUE, 0);
@@ -1263,6 +1392,11 @@ static GtkWidget *citizen_view(UiState *state)
     const char *reviewTitles[] = {"Rating", "Comment"};
 
     gtk_container_set_border_width(GTK_CONTAINER(box), 12);
+    style_button(search, "#F2A900", "#1B2A4A");
+    style_button(reserve, "#287A4D", "#FFFFFF");
+    style_button(book, "#287A4D", "#FFFFFF");
+    style_button(review, "#1F5FBF", "#FFFFFF");
+    style_button(complaint, "#B33A3A", "#FFFFFF");
     gtk_box_pack_start(GTK_BOX(box),
                        make_dashboard_header(state, "CITIZEN"),
                        FALSE, FALSE, 4);
