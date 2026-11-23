@@ -58,26 +58,48 @@ typedef struct {
     int darkTheme;
 } UiState;
 
+static GtkWidget *main_window = NULL;
+
 static void set_status(UiState *state, const char *message);
 static void set_page(UiState *state, int page);
 static void refresh_dashboard_identity(UiState *state);
 static GdkPixbuf *make_parky_logo(void);
 
+static gint show_dialog(GtkWindow *parent, GtkMessageType type,
+                        const char *title, const char *msg)
+{
+    GtkWidget *dialog;
+    GtkButtonsType buttons =
+        title != NULL && strstr(title, "Confirm") != NULL ?
+        GTK_BUTTONS_YES_NO : GTK_BUTTONS_OK;
+    GtkWindow *dialogParent =
+        parent != NULL ? parent : GTK_WINDOW(main_window);
+
+    dialog = gtk_message_dialog_new(
+        dialogParent,
+        GTK_DIALOG_MODAL,
+        type,
+        buttons,
+        "%s",
+        msg);
+    gtk_window_set_title(GTK_WINDOW(dialog), title);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog),
+                                 GTK_WINDOW(main_window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_position(GTK_WINDOW(dialog),
+                            GTK_WIN_POS_CENTER_ON_PARENT);
+    {
+        gint response = gtk_dialog_run(GTK_DIALOG(dialog));
+        gtk_widget_destroy(dialog);
+        return response;
+    }
+}
+
 static void show_message(UiState *state, GtkMessageType type,
                          const char *title, const char *message)
 {
-    GtkWidget *dialog;
     (void)state;
-    dialog = gtk_message_dialog_new(
-        NULL,
-        GTK_DIALOG_MODAL,
-        type,
-        GTK_BUTTONS_OK,
-        "%s",
-        message);
-    gtk_window_set_title(GTK_WINDOW(dialog), title);
-    gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    show_dialog(NULL, type, title, message);
 }
 
 static int contains_auth_delimiter(const char *text)
@@ -489,6 +511,11 @@ static void choose_profile_photo_clicked(GtkWidget *widget,
         GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
         GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
         NULL);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog),
+                                 GTK_WINDOW(main_window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_position(GTK_WINDOW(dialog),
+                            GTK_WIN_POS_CENTER_ON_PARENT);
     filter = gtk_file_filter_new();
     gtk_file_filter_set_name(filter, "PNG and JPEG images");
     gtk_file_filter_add_pattern(filter, "*.png");
@@ -677,21 +704,12 @@ static int confirm_destructive_action(UiState *state,
                                       const char *action,
                                       const char *details)
 {
-    GtkWidget *dialog;
     gint response;
     char message[256];
-    (void)state;
     snprintf(message, sizeof(message), "%s\n%s", action, details);
-    dialog = gtk_message_dialog_new(
-        NULL,
-        GTK_DIALOG_MODAL,
-        GTK_MESSAGE_WARNING,
-        GTK_BUTTONS_YES_NO,
-        "%s",
-        message);
-    gtk_window_set_title(GTK_WINDOW(dialog), "Confirm destructive action");
-    response = gtk_dialog_run(GTK_DIALOG(dialog));
-    gtk_widget_destroy(dialog);
+    (void)state;
+    response = show_dialog(NULL, GTK_MESSAGE_WARNING,
+                           "Confirm destructive action", message);
     return response == GTK_RESPONSE_YES;
 }
 
@@ -996,6 +1014,11 @@ static void choose_signup_avatar_clicked(GtkWidget *widget,
         GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
         GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
         NULL);
+    gtk_window_set_transient_for(GTK_WINDOW(dialog),
+                                 GTK_WINDOW(main_window));
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_position(GTK_WINDOW(dialog),
+                            GTK_WIN_POS_CENTER_ON_PARENT);
     filter = gtk_file_filter_new();
     gtk_file_filter_set_name(filter, "PNG and JPEG images");
     gtk_file_filter_add_pattern(filter, "*.png");
@@ -1675,8 +1698,10 @@ static GtkWidget *login_view(UiState *state)
     GtkWidget *card = rounded_card(520);
     GtkWidget *cardBox = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
-    GtkWidget *loginBtn = compact_auth_button(
-        "Sign In", GTK_STOCK_DIALOG_AUTHENTICATION, "#1B2A4A");
+    GtkWidget *loginBtn = gtk_button_new_with_label("Sign In");
+    GdkColor normalBg;
+    GdkColor hoverBg;
+    GdkColor whiteFg;
     GtkWidget *signupLink = gtk_link_button_new_with_label(
         "", "Don't have an account? Sign Up");
     GtkSizeGroup *authFields = gtk_size_group_new(
@@ -1712,6 +1737,20 @@ static GtkWidget *login_view(UiState *state)
     set_entry_placeholder(state->loginPassword, "Password");
     gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), TRUE);
     gtk_widget_set_size_request(loginBtn, 180, 40);
+    gdk_color_parse("#1B2A4A", &normalBg);
+    gdk_color_parse("#2B4478", &hoverBg);
+    gdk_color_parse("#FFFFFF", &whiteFg);
+    gtk_widget_modify_bg(loginBtn, GTK_STATE_NORMAL, &normalBg);
+    gtk_widget_modify_bg(loginBtn, GTK_STATE_PRELIGHT, &hoverBg);
+    gtk_widget_modify_fg(loginBtn, GTK_STATE_NORMAL, &whiteFg);
+    gtk_widget_modify_fg(loginBtn, GTK_STATE_PRELIGHT, &whiteFg);
+    if (GTK_IS_BIN(loginBtn)) {
+        GtkWidget *loginLabel = gtk_bin_get_child(GTK_BIN(loginBtn));
+        if (GTK_IS_LABEL(loginLabel)) {
+            gtk_widget_modify_fg(loginLabel, GTK_STATE_NORMAL, &whiteFg);
+            gtk_widget_modify_fg(loginLabel, GTK_STATE_PRELIGHT, &whiteFg);
+        }
+    }
     {
         GtkWidget *loginAlignment =
             gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
@@ -2201,6 +2240,7 @@ int ui_run(ParkyData *data, int argc, char **argv)
 
     gtk_init(&argc, &argv);
     window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    main_window = window;
     gtk_window_set_title(GTK_WINDOW(window), "Parky");
     gtk_window_set_default_size(GTK_WINDOW(window), 1180, 740);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);

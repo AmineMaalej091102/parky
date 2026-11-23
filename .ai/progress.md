@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (Minimal Auth UI)
-- **Completed:** Added icon-only auth rows, Email sign-in, visible gray password placeholders until typing, and high-contrast compact buttons.
-- **Next Task:** Run final auth screenshot/build verification and prepare recruiter-facing documentation.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; auth presentation uses only GTK2/GdkPixbuf APIs.
+- **Active Release:** v1.0.0 (Lot 4.11 Dialog and Sign-In Polish)
+- **Completed:** Centered message/file dialogs on the main window and restored Sign In normal/hover colors.
+- **Next Task:** Re-run visual verification for dialog placement and Sign In hover feedback.
+- **Blockers/Notes:** GTK2 build passes under Ubuntu 18.04 Docker with -Wall -Wextra.
