@@ -23,6 +23,22 @@ typedef struct {
     GtkWidget *adminUsers;
     GtkWidget *adminParkings;
     GtkWidget *adminComplaints;
+    GtkWidget *adminOccupancy;
+    GtkWidget *adminTotalUsers;
+    GtkWidget *adminTotalParkings;
+    GtkWidget *adminParkingAgents;
+    GtkWidget *adminPendingComplaints;
+    GtkWidget *adminUserName;
+    GtkWidget *adminUserEmail;
+    GtkWidget *adminUserPassword;
+    GtkWidget *adminUserRole;
+    GtkWidget *adminUserParking;
+    GtkWidget *adminParkingName;
+    GtkWidget *adminParkingAddress;
+    GtkWidget *adminParkingTotal;
+    GtkWidget *adminParkingAvailable;
+    GtkWidget *adminParkingAgent;
+    GtkWidget *adminComplaintDetail;
     GtkWidget *agentReservations;
     GtkWidget *agentServices;
     GtkWidget *citizenParkings;
@@ -773,10 +789,10 @@ static GtkWidget *make_tree_view(const char *frameTitle,
     GtkWidget *tree = gtk_tree_view_new();
     GtkWidget *scroller = gtk_scrolled_window_new(NULL, NULL);
     GtkWidget *frame = gtk_frame_new(frameTitle);
-    GType types[6];
+    GType types[8];
     int i;
-    if (columnCount > 6) {
-        columnCount = 6;
+    if (columnCount > 8) {
+        columnCount = 8;
     }
     for (i = 0; i < columnCount; ++i) {
         types[i] = G_TYPE_STRING;
@@ -845,6 +861,8 @@ static void refresh_admin_tables(UiState *state)
     GtkTreeIter iter;
     char value[128];
     int i;
+    int agentCount = 0;
+    int pending = 0;
 
     store = tree_store(state, state->adminUsers);
     gtk_list_store_clear(store);
@@ -852,39 +870,123 @@ static void refresh_admin_tables(UiState *state)
         const char *role = state->data->users[i].role == USER_ADMIN ? "Admin" :
                            state->data->users[i].role == USER_AGENT ? "Agent" :
                            "Citizen";
+        char assigned[32];
+        if (state->data->users[i].role == USER_AGENT)
+            ++agentCount;
+        snprintf(assigned, sizeof(assigned), "%d",
+                 state->data->users[i].assignedParkingId);
         gtk_list_store_append(store, &iter);
         snprintf(value, sizeof(value), "%d", state->data->users[i].id);
         gtk_list_store_set(store, &iter, 0, value, 1,
                            state->data->users[i].name, 2,
-                           state->data->users[i].email, 3, role, -1);
+                           state->data->users[i].email, 3, role, 4,
+                           assigned, -1);
     }
 
     store = tree_store(state, state->adminParkings);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->parkingCount; ++i) {
+        char total[32], available[32], price[32];
+        const char *agentName = "Unassigned";
+        int j;
+        snprintf(total, sizeof(total), "%d",
+                 state->data->parkings[i].totalSpots);
+        snprintf(available, sizeof(available), "%d",
+                 state->data->parkings[i].availableSpots);
+        snprintf(price, sizeof(price), "2.00");
+        for (j = 0; j < state->data->userCount; ++j) {
+            if (state->data->users[j].role == USER_AGENT &&
+                state->data->users[j].assignedParkingId ==
+                state->data->parkings[i].id) {
+                agentName = state->data->users[j].name;
+                break;
+            }
+        }
         gtk_list_store_append(store, &iter);
         snprintf(value, sizeof(value), "%d", state->data->parkings[i].id);
-        {
-            char available[32];
-            snprintf(available, sizeof(available), "%d",
-                     state->data->parkings[i].availableSpots);
-            gtk_list_store_set(store, &iter, 0, value, 1,
-                               state->data->parkings[i].name, 2,
-                               state->data->parkings[i].address, 3,
-                               available, -1);
-        }
+        gtk_list_store_set(store, &iter, 0, value, 1,
+                           state->data->parkings[i].name, 2,
+                           state->data->parkings[i].address, 3, total,
+                           4, available, 5, price, 6, agentName, -1);
     }
 
     store = tree_store(state, state->adminComplaints);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->complaintCount; ++i) {
+        const char *from = "Unknown";
+        int j;
+        if (state->data->complaints[i].status != 2)
+            ++pending;
+        for (j = 0; j < state->data->userCount; ++j) {
+            if (state->data->users[j].id ==
+                state->data->complaints[i].citizenId) {
+                from = state->data->users[j].name;
+                break;
+            }
+        }
         gtk_list_store_append(store, &iter);
         snprintf(value, sizeof(value), "%d", state->data->complaints[i].id);
         gtk_list_store_set(store, &iter, 0, value, 1,
-                           state->data->complaints[i].subject, 2,
-                           state->data->complaints[i].description, 3,
+                           from, 2, state->data->complaints[i].subject, 3,
                            state->data->complaints[i].status == 2 ?
                            "Resolved" : "Open", -1);
+    }
+
+    {
+        char markup[128];
+        snprintf(markup, sizeof(markup),
+                 "<span size='xx-large' weight='bold'>%d</span>",
+                 state->data->userCount);
+        gtk_label_set_markup(GTK_LABEL(state->adminTotalUsers), markup);
+        snprintf(markup, sizeof(markup),
+                 "<span size='xx-large' weight='bold'>%d</span>",
+                 state->data->parkingCount);
+        gtk_label_set_markup(GTK_LABEL(state->adminTotalParkings), markup);
+        snprintf(markup, sizeof(markup),
+                 "<span size='xx-large' weight='bold'>%d</span>",
+                 agentCount);
+        gtk_label_set_markup(GTK_LABEL(state->adminParkingAgents), markup);
+        snprintf(markup, sizeof(markup),
+                 "<span size='xx-large' weight='bold'>%d</span>",
+                 pending);
+        gtk_label_set_markup(GTK_LABEL(state->adminPendingComplaints), markup);
+    }
+
+    if (state->adminOccupancy != NULL) {
+        GtkListStore *occupancyStore =
+            tree_store(state, state->adminOccupancy);
+        gtk_list_store_clear(occupancyStore);
+        for (i = 0; i < state->data->parkingCount; ++i) {
+            double rate =
+                admin_parking_occupancy_rate(state->data,
+                                             state->data->parkings[i].id);
+            int occupied =
+                state->data->parkings[i].totalSpots -
+                state->data->parkings[i].availableSpots;
+            const char *agentName = "Unassigned";
+            char rateText[32], occupiedText[32], revenueText[32];
+            int j;
+            for (j = 0; j < state->data->userCount; ++j) {
+                if (state->data->users[j].role == USER_AGENT &&
+                    state->data->users[j].assignedParkingId ==
+                    state->data->parkings[i].id) {
+                    agentName = state->data->users[j].name;
+                    break;
+                }
+            }
+            snprintf(value, sizeof(value), "%d",
+                     state->data->parkings[i].id);
+            snprintf(occupiedText, sizeof(occupiedText), "%d", occupied);
+            snprintf(rateText, sizeof(rateText), "%.1f%%",
+                     rate < 0.0 ? 0.0 : rate);
+            snprintf(revenueText, sizeof(revenueText), "%.2f",
+                     occupied * 2.0);
+            gtk_list_store_append(occupancyStore, &iter);
+            gtk_list_store_set(occupancyStore, &iter, 0,
+                               state->data->parkings[i].name, 1,
+                               value, 2, occupiedText, 3, rateText,
+                               4, revenueText, 5, agentName, -1);
+        }
     }
 }
 
@@ -1171,30 +1273,25 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
     }
 }
 
-static void occupancy_clicked(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    char message[128];
-    double rate = state->data->parkingCount > 0 ?
-        admin_parking_occupancy_rate(state->data,
-                                    state->data->parkings[0].id) : 0.0;
-    (void)widget;
-    snprintf(message, sizeof(message),
-             "Central parking occupancy: %.1f%%", rate);
-    set_status(state, message);
-}
-
 static void resolve_complaint_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
+    int complaintId =
+        tree_selected_first_id(state, state->adminComplaints);
     (void)widget;
-    if (state->data->complaintCount > 0 &&
-        admin_resolve_complaint(state->data,
-                                state->data->complaints[0].id))
-        set_status(state, "Oldest complaint resolved");
-    else
-        set_status(state, "No complaint to resolve");
-    refresh_admin_tables(state);
+    if (complaintId == 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "No complaint selected",
+                     "Select a complaint from the list first.");
+        return;
+    }
+    if (admin_resolve_complaint(state->data, complaintId)) {
+        show_message(state, GTK_MESSAGE_INFO, "Complaint resolved",
+                     "The selected complaint was resolved.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Resolution failed",
+                     "The selected complaint could not be resolved.");
+    }
 }
 
 static void generate_demo_data_clicked(GtkWidget *widget, gpointer user_data)
@@ -1217,50 +1314,60 @@ static void generate_demo_data_clicked(GtkWidget *widget, gpointer user_data)
 static void delete_user_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
+    int userId =
+        tree_selected_first_id(state, state->adminUsers);
+    int i;
+    int isAgent = 0;
     (void)widget;
-    if (state->data->userCount > 0 &&
-        confirm_destructive_action(state, "Delete the first user?",
+    if (userId == 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "No user selected",
+                     "Select a user or agent from the list first.");
+        return;
+    }
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (state->data->users[i].id == userId) {
+            if (state->data->users[i].role == USER_ADMIN) {
+                show_message(state, GTK_MESSAGE_ERROR, "Protected account",
+                             "The administrator account cannot be deleted.");
+                return;
+            }
+            isAgent = state->data->users[i].role == USER_AGENT;
+            break;
+        }
+    }
+    if (confirm_destructive_action(state, "Delete selected user?",
                                    "This action cannot be undone.") &&
-        admin_delete_user(state->data, state->data->users[0].id)) {
+        (isAgent ? admin_delete_agent(state->data, userId) :
+                   admin_delete_user(state->data, userId))) {
         show_message(state, GTK_MESSAGE_INFO, "User deleted",
                      "The selected user was deleted.");
         refresh_admin_tables(state);
+    } else if (userId > 0) {
+        show_message(state, GTK_MESSAGE_ERROR, "Deletion failed",
+                     "The selected user could not be deleted.");
     }
 }
 
 static void delete_parking_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
+    int parkingId =
+        tree_selected_first_id(state, state->adminParkings);
     (void)widget;
-    if (state->data->parkingCount > 0 &&
-        confirm_destructive_action(state, "Delete the first parking?",
+    if (parkingId == 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "No parking selected",
+                     "Select a parking from the list first.");
+        return;
+    }
+    if (confirm_destructive_action(state, "Delete selected parking?",
                                    "This action cannot be undone.") &&
-        admin_delete_parking(state->data, state->data->parkings[0].id)) {
+        admin_delete_parking(state->data, parkingId)) {
         show_message(state, GTK_MESSAGE_INFO, "Parking deleted",
                      "The selected parking was deleted.");
         refresh_admin_tables(state);
-    }
-}
-
-static void delete_agent_clicked(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    int i;
-    int agentId = 0;
-    (void)widget;
-    for (i = 0; i < state->data->userCount; ++i) {
-        if (state->data->users[i].role == USER_AGENT) {
-            agentId = state->data->users[i].id;
-            break;
-        }
-    }
-    if (agentId > 0 &&
-        confirm_destructive_action(state, "Delete the first agent?",
-                                   "This action cannot be undone.") &&
-        admin_delete_agent(state->data, agentId)) {
-        show_message(state, GTK_MESSAGE_INFO, "Agent deleted",
-                     "The selected agent was deleted.");
-        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Deletion failed",
+                     "The selected parking could not be deleted.");
     }
 }
 
@@ -1768,82 +1875,572 @@ static GtkWidget *login_view(UiState *state)
     return root;
 }
 
+static int next_id_from_users(const ParkyData *data)
+{
+    int i, next = 1;
+    for (i = 0; i < data->userCount; ++i)
+        if (data->users[i].id >= next)
+            next = data->users[i].id + 1;
+    return next;
+}
+
+static int next_id_from_parkings(const ParkyData *data)
+{
+    int i, next = 1;
+    for (i = 0; i < data->parkingCount; ++i)
+        if (data->parkings[i].id >= next)
+            next = data->parkings[i].id + 1;
+    return next;
+}
+
+static GtkWidget *admin_entry_row(const char *label, GtkWidget **entry)
+{
+    GtkWidget *box = gtk_hbox_new(FALSE, 6);
+    GtkWidget *text = gtk_entry_new();
+    gtk_widget_set_size_request(text, 120, 32);
+    gtk_box_pack_start(GTK_BOX(box), gtk_label_new(label),
+                       FALSE, FALSE, 0);
+    gtk_box_pack_end(GTK_BOX(box), text, TRUE, TRUE, 0);
+    *entry = text;
+    return box;
+}
+
+static void admin_refresh_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    refresh_admin_tables((UiState *)user_data);
+    set_status((UiState *)user_data, "Dashboard statistics refreshed");
+}
+
+static void admin_add_user_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    const char *name = gtk_entry_get_text(GTK_ENTRY(state->adminUserName));
+    const char *email = gtk_entry_get_text(GTK_ENTRY(state->adminUserEmail));
+    const char *password = gtk_entry_get_text(GTK_ENTRY(state->adminUserPassword));
+    User user;
+    UserRole role = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserRole)) == 1 ?
+                   USER_AGENT : USER_CITIZEN;
+    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
+    (void)widget;
+    if (!valid_auth_field(name) || !valid_email(email) ||
+        !valid_auth_field(password)) {
+        show_message(state, GTK_MESSAGE_ERROR, "Invalid user details",
+                     "Enter a valid name, email, and password.");
+        return;
+    }
+    memset(&user, 0, sizeof(user));
+    user.id = next_id_from_users(state->data);
+    snprintf(user.name, sizeof(user.name), "%s", name);
+    snprintf(user.email, sizeof(user.email), "%s", email);
+    snprintf(user.password, sizeof(user.password), "%s", password);
+    user.role = role;
+    user.assignedParkingId = active > 0 && active - 1 < state->data->parkingCount ?
+                             state->data->parkings[active - 1].id : 0;
+    if ((role == USER_AGENT ? admin_add_agent(state->data, &user) :
+                              admin_add_user(state->data, &user))) {
+        show_message(state, GTK_MESSAGE_INFO, "User added",
+                     "The selected account was added.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "User add failed",
+                     "PARKY could not add the account.");
+    }
+}
+
+static void admin_edit_user_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int id = tree_selected_first_id(state, state->adminUsers);
+    User user;
+    int i, active;
+    int targetAgent;
+    int originalAgent;
+    (void)widget;
+    if (id == 0 || !admin_get_user(state->data, id, &user)) {
+        show_message(state, GTK_MESSAGE_WARNING, "No user selected",
+                     "Select a user or agent from the list first.");
+        return;
+    }
+    targetAgent =
+        gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserRole)) == 1;
+    originalAgent = user.role == USER_AGENT;
+    snprintf(user.name, sizeof(user.name), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminUserName)));
+    snprintf(user.email, sizeof(user.email), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminUserEmail)));
+    snprintf(user.password, sizeof(user.password), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminUserPassword)));
+    active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
+    user.assignedParkingId = active > 0 && active - 1 < state->data->parkingCount ?
+                             state->data->parkings[active - 1].id : 0;
+    if (targetAgent)
+        user.role = USER_AGENT;
+    else
+        user.role = USER_CITIZEN;
+    i = targetAgent && originalAgent ?
+        admin_update_agent(state->data, &user) :
+        admin_update_user(state->data, &user);
+    if (i) {
+        show_message(state, GTK_MESSAGE_INFO, "User updated",
+                     "The selected account was updated.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "User update failed",
+                     "PARKY could not update the account.");
+    }
+}
+
+static void admin_assign_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int agentId = tree_selected_first_id(state, state->adminUsers);
+    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
+    (void)widget;
+    if (agentId == 0 || active <= 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "Assignment incomplete",
+                     "Select an agent and a destination parking.");
+        return;
+    }
+    if (admin_assign_agent(state->data, agentId,
+                           state->data->parkings[active - 1].id)) {
+        show_message(state, GTK_MESSAGE_INFO, "Agent assigned",
+                     "The selected agent was assigned to the parking.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Assignment failed",
+                     "Select an agent and assign a valid parking.");
+    }
+}
+
+static void admin_add_parking_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    Parking parking;
+    (void)widget;
+    memset(&parking, 0, sizeof(parking));
+    parking.id = next_id_from_parkings(state->data);
+    snprintf(parking.name, sizeof(parking.name), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminParkingName)));
+    snprintf(parking.address, sizeof(parking.address), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminParkingAddress)));
+    parking.totalSpots = atoi(gtk_entry_get_text(GTK_ENTRY(state->adminParkingTotal)));
+    parking.availableSpots =
+        atoi(gtk_entry_get_text(GTK_ENTRY(state->adminParkingAvailable)));
+    if (parking.name[0] == '\0' || parking.address[0] == '\0' ||
+        parking.totalSpots <= 0 ||
+        parking.availableSpots < 0 ||
+        parking.availableSpots > parking.totalSpots) {
+        show_message(state, GTK_MESSAGE_ERROR, "Invalid parking details",
+                     "Enter a name, address, valid total spots, and available spots.");
+        return;
+    }
+    if (admin_add_parking(state->data, &parking)) {
+        show_message(state, GTK_MESSAGE_INFO, "Parking added",
+                     "The parking was added successfully.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Parking add failed",
+                     "PARKY could not add the parking.");
+    }
+}
+
+static void admin_update_parking_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int id = tree_selected_first_id(state, state->adminParkings);
+    Parking parking;
+    int i;
+    (void)widget;
+    if (id == 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "No parking selected",
+                     "Select a parking to update.");
+        return;
+    }
+    memset(&parking, 0, sizeof(parking));
+    parking.id = id;
+    snprintf(parking.name, sizeof(parking.name), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminParkingName)));
+    snprintf(parking.address, sizeof(parking.address), "%s",
+             gtk_entry_get_text(GTK_ENTRY(state->adminParkingAddress)));
+    parking.totalSpots = atoi(gtk_entry_get_text(GTK_ENTRY(state->adminParkingTotal)));
+    parking.availableSpots =
+        atoi(gtk_entry_get_text(GTK_ENTRY(state->adminParkingAvailable)));
+    if (parking.name[0] == '\0' || parking.address[0] == '\0' ||
+        parking.totalSpots <= 0 ||
+        parking.availableSpots < 0 ||
+        parking.availableSpots > parking.totalSpots) {
+        show_message(state, GTK_MESSAGE_ERROR, "Invalid parking details",
+                     "Enter valid parking values.");
+        return;
+    }
+    for (i = 0; i < state->data->parkingCount; ++i) {
+        if (state->data->parkings[i].id == id)
+            parking.status = state->data->parkings[i].status;
+    }
+    if (admin_update_parking(state->data, &parking)) {
+        show_message(state, GTK_MESSAGE_INFO, "Parking updated",
+                     "The selected parking was updated.");
+        refresh_admin_tables(state);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Parking update failed",
+                     "PARKY could not update the parking.");
+    }
+}
+
+static void admin_parking_row_selected(GtkTreeSelection *selection,
+                                       gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    gchar *textId = NULL;
+    int id;
+    int i;
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+        return;
+    gtk_tree_model_get(model, &iter, 0, &textId, -1);
+    id = textId != NULL ? atoi(textId) : 0;
+    g_free(textId);
+    for (i = 0; i < state->data->parkingCount; ++i) {
+        if (state->data->parkings[i].id == id) {
+            char number[32];
+            gtk_entry_set_text(GTK_ENTRY(state->adminParkingName),
+                               state->data->parkings[i].name);
+            gtk_entry_set_text(GTK_ENTRY(state->adminParkingAddress),
+                               state->data->parkings[i].address);
+            snprintf(number, sizeof(number), "%d",
+                     state->data->parkings[i].totalSpots);
+            gtk_entry_set_text(GTK_ENTRY(state->adminParkingTotal), number);
+            snprintf(number, sizeof(number), "%d",
+                     state->data->parkings[i].availableSpots);
+            gtk_entry_set_text(GTK_ENTRY(state->adminParkingAvailable), number);
+            return;
+        }
+    }
+}
+
+static void admin_complaint_row_selected(GtkTreeSelection *selection,
+                                         gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    gchar *textId = NULL;
+    int id;
+    int i;
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+        return;
+    gtk_tree_model_get(model, &iter, 0, &textId, -1);
+    id = textId != NULL ? atoi(textId) : 0;
+    g_free(textId);
+    for (i = 0; i < state->data->complaintCount; ++i) {
+        if (state->data->complaints[i].id == id) {
+            GtkTextBuffer *buffer =
+                gtk_text_view_get_buffer(GTK_TEXT_VIEW(state->adminComplaintDetail));
+            char detail[PARKY_TEXT_LENGTH + PARKY_NAME_LENGTH + 64];
+            snprintf(detail, sizeof(detail), "Subject: %s\n\n%s",
+                     state->data->complaints[i].subject,
+                     state->data->complaints[i].description);
+            gtk_text_buffer_set_text(buffer, detail, -1);
+            return;
+        }
+    }
+}
+
+static void delete_complaint_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int id = tree_selected_first_id(state, state->adminComplaints);
+    int i, index = -1;
+    (void)widget;
+    if (id == 0) {
+        show_message(state, GTK_MESSAGE_WARNING, "No complaint selected",
+                     "Select a complaint from the list first.");
+        return;
+    }
+    if (!confirm_destructive_action(state, "Delete selected complaint?",
+                                    "This action cannot be undone."))
+        return;
+    for (i = 0; i < state->data->complaintCount; ++i)
+        if (state->data->complaints[i].id == id)
+            index = i;
+    if (index >= 0) {
+        for (i = index; i < state->data->complaintCount - 1; ++i)
+            state->data->complaints[i] = state->data->complaints[i + 1];
+        --state->data->complaintCount;
+        if (storage_save(state->data)) {
+            show_message(state, GTK_MESSAGE_INFO, "Complaint deleted",
+                         "The selected complaint was deleted.");
+            refresh_admin_tables(state);
+        }
+    }
+}
+
 static GtkWidget *admin_view(UiState *state)
 {
-    GtkWidget *box = gtk_vbox_new(FALSE, 8);
-    GtkWidget *left = gtk_vbox_new(FALSE, 8);
-    GtkWidget *right = gtk_vbox_new(FALSE, 8);
-    GtkWidget *split = gtk_hpaned_new();
-    GtkWidget *occupancy = make_stock_button(
-        "View occupancy statistics", GTK_STOCK_REFRESH);
-    GtkWidget *resolve = make_stock_button(
-        "Resolve oldest complaint", GTK_STOCK_APPLY);
-    GtkWidget *deleteUser = make_stock_button(
-        "Delete first user", GTK_STOCK_DELETE);
-    GtkWidget *deleteParking = make_stock_button(
-        "Delete first parking", GTK_STOCK_DELETE);
-    GtkWidget *deleteAgent = make_stock_button(
-        "Delete first agent", GTK_STOCK_DELETE);
-    GtkWidget *demoData = make_stock_button(
-        "Generate Demo Data", GTK_STOCK_REFRESH);
-    GtkWidget *actions = gtk_hbox_new(TRUE, 6);
+    GtkWidget *root = gtk_vbox_new(FALSE, 8);
+    GtkWidget *tabs = gtk_notebook_new();
+    GtkWidget *overview = gtk_vbox_new(FALSE, 8);
+    GtkWidget *kpis = gtk_hbox_new(TRUE, 8);
+    GtkWidget *toolbar = gtk_hbox_new(FALSE, 8);
+    GtkWidget *refresh = make_stock_button("Refresh Stats", GTK_STOCK_REFRESH);
+    GtkWidget *demo = make_stock_button("Generate Demo Data", GTK_STOCK_REFRESH);
+    GtkWidget *occupancyTitle = gtk_label_new(NULL);
+    GtkListStore *occupancyStore;
+    const char *occupancyTitles[] = {
+        "Parking", "Capacity", "Occupied", "Occupancy", "Revenue", "Agent"
+    };
+    GtkWidget *occupancyCard;
+    GtkWidget *usersTab = gtk_hpaned_new();
+    GtkWidget *usersPanel = gtk_vbox_new(FALSE, 8);
+    GtkWidget *parkingsTab = gtk_hpaned_new();
+    GtkWidget *parkingPanel = gtk_vbox_new(FALSE, 8);
+    GtkWidget *complaintsTab = gtk_hpaned_new();
+    GtkWidget *complaintPanel = gtk_vbox_new(FALSE, 8);
     GtkListStore *store;
-    const char *userTitles[] = {"ID", "Name", "Email", "Role"};
-    const char *parkingTitles[] = {"ID", "Name", "Address", "Available"};
-    const char *complaintTitles[] = {"ID", "Subject", "Description", "Status"};
-    char summary[160];
+    GtkWidget *tree;
+    GtkTreeSelection *selection;
+    GtkWidget *roleCombo = gtk_combo_box_new_text();
+    GtkWidget *parkingCombo = gtk_combo_box_new_text();
+    GtkWidget *addUser, *editUser, *deleteUser, *assignAgent;
+    GtkWidget *addParking, *updateParking, *deleteParking;
+    GtkWidget *resolveComplaint, *deleteComplaint;
+    GtkWidget *detailScroller;
+    const char *userTitles[] = {
+        "ID", "Username", "Email", "Role", "Assigned Parking"
+    };
+    const char *parkingTitles[] = {
+        "ID", "Name", "Address/Zone", "Total Spots",
+        "Available", "Price/Hr", "Agent"
+    };
+    const char *complaintTitles[] = {"ID", "From", "Subject", "Status"};
+    int i;
 
-    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
-    style_button(occupancy, "#1F5FBF", "#FFFFFF");
-    style_button(resolve, "#287A4D", "#FFFFFF");
+    gtk_container_set_border_width(GTK_CONTAINER(root), 8);
+    gtk_box_pack_start(GTK_BOX(root), make_dashboard_header(state, "ADMIN"),
+                       FALSE, FALSE, 0);
+    gtk_notebook_set_scrollable(GTK_NOTEBOOK(tabs), TRUE);
+
+    state->adminTotalUsers = gtk_label_new(NULL);
+    state->adminTotalParkings = gtk_label_new(NULL);
+    state->adminParkingAgents = gtk_label_new(NULL);
+    state->adminPendingComplaints = gtk_label_new(NULL);
+    {
+        GtkWidget *cards[4];
+        const char *titles[4] = {
+            "Total Users", "Total Parkings", "Parking Agents",
+            "Pending Complaints"
+        };
+        GtkWidget *values[4];
+        values[0] = state->adminTotalUsers;
+        values[1] = state->adminTotalParkings;
+        values[2] = state->adminParkingAgents;
+        values[3] = state->adminPendingComplaints;
+        for (i = 0; i < 4; ++i) {
+            GtkWidget *card = gtk_event_box_new();
+            GtkWidget *cardBox = gtk_vbox_new(FALSE, 4);
+            gtk_container_set_border_width(GTK_CONTAINER(card), 10);
+            gtk_box_pack_start(GTK_BOX(cardBox),
+                               gtk_label_new(titles[i]), FALSE, FALSE, 0);
+            gtk_box_pack_start(GTK_BOX(cardBox), values[i], FALSE, FALSE, 0);
+            gtk_container_add(GTK_CONTAINER(card), cardBox);
+            cards[i] = card;
+        }
+        for (i = 0; i < 4; ++i)
+            gtk_box_pack_start(GTK_BOX(kpis), cards[i], TRUE, TRUE, 0);
+    }
+
+    style_button(refresh, "#1F5FBF", "#FFFFFF");
+    style_button(demo, "#F2A900", "#1B2A4A");
+    gtk_box_pack_start(GTK_BOX(toolbar), refresh, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(toolbar), demo, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(overview), toolbar, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(overview), kpis, FALSE, FALSE, 4);
+    gtk_label_set_markup(GTK_LABEL(occupancyTitle),
+                         "<span size='large' weight='bold'>"
+                         "Parking Occupancy &amp; Revenue Summary"
+                         "</span>");
+    gtk_box_pack_start(GTK_BOX(overview), occupancyTitle, FALSE, FALSE, 4);
+    occupancyCard = make_tree_view("Occupancy Summary", &occupancyStore,
+                                   occupancyTitles, 6);
+    state->adminOccupancy = occupancyCard;
+    gtk_widget_set_size_request(occupancyCard, -1, 220);
+    gtk_box_pack_start(GTK_BOX(overview), occupancyCard, TRUE, TRUE, 4);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), overview,
+                             gtk_label_new("Overview & Stats"));
+    g_signal_connect(refresh, "clicked",
+                     G_CALLBACK(admin_refresh_clicked), state);
+    g_signal_connect(demo, "clicked",
+                     G_CALLBACK(generate_demo_data_clicked), state);
+
+    state->adminUsers = make_tree_view("Users & Agents", &store,
+                                       userTitles, 5);
+    gtk_widget_set_size_request(state->adminUsers, 600, 420);
+    gtk_paned_pack1(GTK_PANED(usersTab), state->adminUsers, TRUE, FALSE);
+    gtk_combo_box_append_text(GTK_COMBO_BOX(roleCombo), "Citizen");
+    gtk_combo_box_append_text(GTK_COMBO_BOX(roleCombo), "Agent");
+    gtk_combo_box_set_active(GTK_COMBO_BOX(roleCombo), 0);
+    gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo), "Unassigned");
+    for (i = 0; i < state->data->parkingCount; ++i)
+        gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo),
+                                  state->data->parkings[i].name);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(parkingCombo), 0);
+    state->adminUserRole = roleCombo;
+    state->adminUserParking = parkingCombo;
+    usersPanel = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(usersPanel), 8);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       gtk_label_new("Account Management"), FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       admin_entry_row("Username:", &state->adminUserName),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       admin_entry_row("Email:", &state->adminUserEmail),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       admin_entry_row("Password:", &state->adminUserPassword),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       gtk_label_new("Role"), FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel), roleCombo, FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel),
+                       gtk_label_new("Assigned Parking"), FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel), parkingCombo, FALSE, FALSE, 2);
+
+    addUser = make_stock_button("Add User/Agent", GTK_STOCK_ADD);
+    editUser = make_stock_button("Edit Selected", GTK_STOCK_EDIT);
+    deleteUser = make_stock_button("Delete Selected", GTK_STOCK_DELETE);
+    assignAgent = make_stock_button("Assign Selected Agent to Parking",
+                                    GTK_STOCK_APPLY);
+    style_button(addUser, "#287A4D", "#FFFFFF");
+    style_button(editUser, "#1F5FBF", "#FFFFFF");
     style_button(deleteUser, "#B33A3A", "#FFFFFF");
-    style_button(deleteParking, "#B33A3A", "#FFFFFF");
-    style_button(deleteAgent, "#B33A3A", "#FFFFFF");
-    style_button(demoData, "#F2A900", "#1B2A4A");
-    gtk_container_set_border_width(GTK_CONTAINER(left), 8);
-    gtk_container_set_border_width(GTK_CONTAINER(right), 8);
-    snprintf(summary, sizeof(summary),
-             "Users: %d | Parkings: %d | Agents: %d | Complaints: %d",
-             state->data->userCount, state->data->parkingCount,
-             state->data->complaintCount, state->data->complaintCount);
-    gtk_box_pack_start(GTK_BOX(left),
-                       make_dashboard_header(state, "ADMIN"),
-                       FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(left), gtk_label_new(summary),
-                       FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(left), occupancy, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(left), resolve, FALSE, FALSE, 4);
-    state->adminUsers = make_tree_view("Users", &store, userTitles, 4);
-    state->adminParkings = make_tree_view("Parkings", &store,
-                                           parkingTitles, 4);
-    state->adminComplaints = make_tree_view("Complaints", &store,
-                                             complaintTitles, 4);
-    gtk_box_pack_start(GTK_BOX(right), state->adminUsers, TRUE, TRUE, 4);
-    gtk_box_pack_start(GTK_BOX(right), state->adminParkings, TRUE, TRUE, 4);
-    gtk_box_pack_start(GTK_BOX(right), state->adminComplaints, TRUE, TRUE, 4);
-    gtk_box_pack_start(GTK_BOX(actions), deleteUser, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(actions), deleteParking, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(actions), deleteAgent, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(actions), demoData, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(left), actions, FALSE, FALSE, 4);
-    g_signal_connect(occupancy, "clicked",
-                     G_CALLBACK(occupancy_clicked), state);
-    g_signal_connect(resolve, "clicked",
-                     G_CALLBACK(resolve_complaint_clicked), state);
+    style_button(assignAgent, "#F2A900", "#1B2A4A");
+    gtk_box_pack_start(GTK_BOX(usersPanel), addUser, FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel), editUser, FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel), deleteUser, FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanel), assignAgent, FALSE, FALSE, 2);
+    gtk_paned_pack2(GTK_PANED(usersTab), usersPanel, FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(usersTab), 760);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), usersTab,
+                             gtk_label_new("Users & Agents"));
+    g_signal_connect(addUser, "clicked",
+                     G_CALLBACK(admin_add_user_clicked), state);
+    g_signal_connect(editUser, "clicked",
+                     G_CALLBACK(admin_edit_user_clicked), state);
     g_signal_connect(deleteUser, "clicked",
                      G_CALLBACK(delete_user_clicked), state);
+    g_signal_connect(assignAgent, "clicked",
+                     G_CALLBACK(admin_assign_clicked), state);
+
+    state->adminParkings = make_tree_view("Parkings", &store,
+                                          parkingTitles, 7);
+    gtk_widget_set_size_request(state->adminParkings, 700, 420);
+    gtk_paned_pack1(GTK_PANED(parkingsTab), state->adminParkings,
+                    TRUE, FALSE);
+    parkingPanel = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(parkingPanel), 8);
+    gtk_box_pack_start(GTK_BOX(parkingPanel),
+                       gtk_label_new("Parking Management"),
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(parkingPanel),
+                       admin_entry_row("Name:", &state->adminParkingName),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(parkingPanel),
+                       admin_entry_row("Address/Zone:",
+                                       &state->adminParkingAddress),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(parkingPanel),
+                       admin_entry_row("Total Spots:",
+                                       &state->adminParkingTotal),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(parkingPanel),
+                       admin_entry_row("Available:",
+                                       &state->adminParkingAvailable),
+                       FALSE, FALSE, 2);
+    addParking = make_stock_button("Add Parking", GTK_STOCK_ADD);
+    updateParking = make_stock_button("Update Selected Parking",
+                                      GTK_STOCK_SAVE);
+    deleteParking = make_stock_button("Delete Selected Parking",
+                                      GTK_STOCK_DELETE);
+    style_button(addParking, "#287A4D", "#FFFFFF");
+    style_button(updateParking, "#1F5FBF", "#FFFFFF");
+    style_button(deleteParking, "#B33A3A", "#FFFFFF");
+    gtk_box_pack_start(GTK_BOX(parkingPanel), addParking,
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(parkingPanel), updateParking,
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(parkingPanel), deleteParking,
+                       FALSE, FALSE, 2);
+    gtk_paned_pack2(GTK_PANED(parkingsTab), parkingPanel, FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(parkingsTab), 760);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), parkingsTab,
+                             gtk_label_new("Parkings"));
+    g_signal_connect(addParking, "clicked",
+                     G_CALLBACK(admin_add_parking_clicked), state);
+    g_signal_connect(updateParking, "clicked",
+                     G_CALLBACK(admin_update_parking_clicked), state);
     g_signal_connect(deleteParking, "clicked",
                      G_CALLBACK(delete_parking_clicked), state);
-    g_signal_connect(deleteAgent, "clicked",
-                     G_CALLBACK(delete_agent_clicked), state);
-    g_signal_connect(demoData, "clicked",
-                     G_CALLBACK(generate_demo_data_clicked), state);
+    tree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(state->adminParkings))));
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
+    g_signal_connect(selection, "changed",
+                     G_CALLBACK(admin_parking_row_selected), state);
+
+    state->adminComplaints = make_tree_view("Complaints", &store,
+                                            complaintTitles, 4);
+    gtk_widget_set_size_request(state->adminComplaints, 700, 420);
+    gtk_paned_pack1(GTK_PANED(complaintsTab), state->adminComplaints,
+                    TRUE, FALSE);
+    complaintPanel = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(complaintPanel), 8);
+    gtk_box_pack_start(GTK_BOX(complaintPanel),
+                       gtk_label_new("Complaint Details"),
+                       FALSE, FALSE, 4);
+    detailScroller = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(detailScroller),
+                                   GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_AUTOMATIC);
+    state->adminComplaintDetail = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(state->adminComplaintDetail),
+                                GTK_WRAP_WORD);
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(state->adminComplaintDetail),
+                               FALSE);
+    gtk_widget_set_size_request(detailScroller, 280, 260);
+    gtk_container_add(GTK_CONTAINER(detailScroller),
+                      state->adminComplaintDetail);
+    gtk_box_pack_start(GTK_BOX(complaintPanel), detailScroller,
+                       TRUE, TRUE, 4);
+    resolveComplaint = make_stock_button("Resolve Selected Complaint",
+                                         GTK_STOCK_APPLY);
+    deleteComplaint = make_stock_button("Delete Selected Complaint",
+                                        GTK_STOCK_DELETE);
+    style_button(resolveComplaint, "#287A4D", "#FFFFFF");
+    style_button(deleteComplaint, "#B33A3A", "#FFFFFF");
+    gtk_box_pack_start(GTK_BOX(complaintPanel), resolveComplaint,
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(complaintPanel), deleteComplaint,
+                       FALSE, FALSE, 2);
+    gtk_paned_pack2(GTK_PANED(complaintsTab), complaintPanel,
+                    FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(complaintsTab), 760);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), complaintsTab,
+                             gtk_label_new("Complaints"));
+    g_signal_connect(resolveComplaint, "clicked",
+                     G_CALLBACK(resolve_complaint_clicked), state);
+    g_signal_connect(deleteComplaint, "clicked",
+                     G_CALLBACK(delete_complaint_clicked), state);
+    tree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(state->adminComplaints))));
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
+    g_signal_connect(selection, "changed",
+                     G_CALLBACK(admin_complaint_row_selected), state);
+
+    gtk_box_pack_start(GTK_BOX(root), tabs, TRUE, TRUE, 0);
     refresh_admin_tables(state);
-    gtk_paned_pack1(GTK_PANED(split), left, FALSE, FALSE);
-    gtk_paned_pack2(GTK_PANED(split), right, TRUE, FALSE);
-    gtk_paned_set_position(GTK_PANED(split), 330);
-    gtk_box_pack_start(GTK_BOX(box), split, TRUE, TRUE, 0);
-    return box;
+    return root;
 }
 
 static GtkWidget *agent_view(UiState *state)
