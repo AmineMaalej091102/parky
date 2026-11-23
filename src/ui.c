@@ -488,7 +488,7 @@ static void apply_light_theme(GtkWidget *widget)
         return;
     if (GTK_IS_EVENT_BOX(widget) || GTK_IS_BUTTON(widget))
         return;
-    gdk_color_parse("#DCE4F0", &background);
+    gdk_color_parse("#C5D3E6", &background);
     gdk_color_parse("#FFFFFF", &white);
     gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &background);
     if (GTK_IS_ENTRY(widget) || GTK_IS_TEXT_VIEW(widget) ||
@@ -814,6 +814,9 @@ static GtkWidget *make_tree_view(const char *frameTitle,
         GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes(
             titles[i], renderer, "text", i, NULL);
         gtk_tree_view_append_column(GTK_TREE_VIEW(tree), column);
+        gtk_tree_view_column_set_sizing(column,
+                                        GTK_TREE_VIEW_COLUMN_AUTOSIZE);
+        gtk_tree_view_column_set_expand(column, TRUE);
         if (strcmp(titles[i], "ID") == 0)
             gtk_tree_view_column_set_visible(column, FALSE);
     }
