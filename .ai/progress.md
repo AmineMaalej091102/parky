@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 (Lot 4.20 Final Visual Polish)
-- **Completed:** Expanded all visible GTK2 table columns and deepened the uniform slate-blue background.
+﻿- **Active Release:** v1.0.0 (Admin Users and Agents Split)
+- **Completed:** Split admin citizens and parking agents into filtered tabs with role-specific CRUD panels; admin accounts remain hidden.
 - **Next Task:** Capture a GTK2 visual review of the fixed 1180x740 layout.
 - **Build Status:** Ubuntu 18.04 Docker build passes cleanly with -Wall -Wextra.

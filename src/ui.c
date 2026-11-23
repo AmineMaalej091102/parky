@@ -21,6 +21,7 @@ typedef struct {
     GtkWidget *agentIdentity;
     GtkWidget *citizenIdentity;
     GtkWidget *adminUsers;
+    GtkWidget *adminAgents;
     GtkWidget *adminParkings;
     GtkWidget *adminComplaints;
     GtkWidget *adminOccupancy;
@@ -29,11 +30,13 @@ typedef struct {
     GtkWidget *adminParkingAgents;
     GtkWidget *adminPendingComplaints;
     GtkWidget *adminGlobalOccupancy;
-    GtkWidget *adminUserName;
-    GtkWidget *adminUserEmail;
-    GtkWidget *adminUserPassword;
-    GtkWidget *adminUserRole;
-    GtkWidget *adminUserParking;
+    GtkWidget *adminCitizenName;
+    GtkWidget *adminCitizenEmail;
+    GtkWidget *adminCitizenPassword;
+    GtkWidget *adminAgentName;
+    GtkWidget *adminAgentEmail;
+    GtkWidget *adminAgentPassword;
+    GtkWidget *adminAgentParking;
     GtkWidget *adminParkingName;
     GtkWidget *adminParkingAddress;
     GtkWidget *adminParkingTotal;
@@ -866,9 +869,46 @@ static int tree_selected_first_id(UiState *state, GtkWidget *treeWidget)
     return id;
 }
 
+static GtkWidget *admin_user_tree(UiState *state, UserRole role)
+{
+    return role == USER_AGENT ? state->adminAgents : state->adminUsers;
+}
+
+static GtkWidget *admin_user_name(UiState *state, UserRole role)
+{
+    return role == USER_AGENT ? state->adminAgentName :
+                                state->adminCitizenName;
+}
+
+static GtkWidget *admin_user_email(UiState *state, UserRole role)
+{
+    return role == USER_AGENT ? state->adminAgentEmail :
+                                state->adminCitizenEmail;
+}
+
+static GtkWidget *admin_user_password(UiState *state, UserRole role)
+{
+    return role == USER_AGENT ? state->adminAgentPassword :
+                                state->adminCitizenPassword;
+}
+
+static UserRole admin_action_role(GtkWidget *widget)
+{
+    gpointer value = g_object_get_data(G_OBJECT(widget), "parky-role");
+    return value != NULL ? (UserRole)GPOINTER_TO_INT(value) :
+                           USER_CITIZEN;
+}
+
+static void set_admin_action_role(GtkWidget *widget, UserRole role)
+{
+    g_object_set_data(G_OBJECT(widget), "parky-role",
+                      GINT_TO_POINTER((int)role));
+}
+
 static void refresh_admin_tables(UiState *state)
 {
     GtkListStore *store;
+    GtkListStore *agentStore;
     GtkTreeIter iter;
     char value[128];
     int i;
@@ -876,12 +916,16 @@ static void refresh_admin_tables(UiState *state)
     int pending = 0;
 
     store = tree_store(state, state->adminUsers);
+    agentStore = tree_store(state, state->adminAgents);
     gtk_list_store_clear(store);
+    gtk_list_store_clear(agentStore);
     for (i = 0; i < state->data->userCount; ++i) {
-        const char *role = state->data->users[i].role == USER_ADMIN ? "Admin" :
-                           state->data->users[i].role == USER_AGENT ? "Agent" :
-                           "Citizen";
         char assigned[PARKY_NAME_LENGTH];
+        GtkListStore *targetStore;
+        if (state->data->users[i].role == USER_ADMIN)
+            continue;
+        targetStore = state->data->users[i].role == USER_AGENT ?
+                      agentStore : store;
         if (state->data->users[i].role == USER_AGENT)
             ++agentCount;
         assigned[0] = '\0';
@@ -898,12 +942,18 @@ static void refresh_admin_tables(UiState *state)
         }
         if (assigned[0] == '\0')
             snprintf(assigned, sizeof(assigned), "Unassigned");
-        gtk_list_store_append(store, &iter);
+        gtk_list_store_append(targetStore, &iter);
         snprintf(value, sizeof(value), "%d", state->data->users[i].id);
-        gtk_list_store_set(store, &iter, 0, value, 1,
-                           state->data->users[i].name, 2,
-                           state->data->users[i].email, 3, role, 4,
-                           assigned, -1);
+        if (state->data->users[i].role == USER_AGENT) {
+            gtk_list_store_set(targetStore, &iter, 0, value, 1,
+                               state->data->users[i].name, 2,
+                               state->data->users[i].email, 3,
+                               assigned, -1);
+        } else {
+            gtk_list_store_set(targetStore, &iter, 0, value, 1,
+                               state->data->users[i].name, 2,
+                               state->data->users[i].email, -1);
+        }
     }
 
     store = tree_store(state, state->adminParkings);
@@ -1263,31 +1313,17 @@ static void resolve_complaint_clicked(GtkWidget *widget, gpointer user_data)
 static void delete_user_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
-    int userId =
-        tree_selected_first_id(state, state->adminUsers);
-    int i;
-    int isAgent = 0;
-    (void)widget;
+    UserRole role = admin_action_role(widget);
+    int userId = tree_selected_first_id(state, admin_user_tree(state, role));
     if (userId == 0) {
         show_message(state, GTK_MESSAGE_WARNING, "No user selected",
-                     "Select a user or agent from the list first.");
+                     "Select an account from the list first.");
         return;
-    }
-    for (i = 0; i < state->data->userCount; ++i) {
-        if (state->data->users[i].id == userId) {
-            if (state->data->users[i].role == USER_ADMIN) {
-                show_message(state, GTK_MESSAGE_ERROR, "Protected account",
-                             "The administrator account cannot be deleted.");
-                return;
-            }
-            isAgent = state->data->users[i].role == USER_AGENT;
-            break;
-        }
     }
     if (confirm_destructive_action(state, "Delete selected user?",
                                    "This action cannot be undone.") &&
-        (isAgent ? admin_delete_agent(state->data, userId) :
-                   admin_delete_user(state->data, userId))) {
+        (role == USER_AGENT ? admin_delete_agent(state->data, userId) :
+                              admin_delete_user(state->data, userId))) {
         show_message(state, GTK_MESSAGE_INFO, "User deleted",
                      "The selected user was deleted.");
         refresh_admin_tables(state);
@@ -1832,17 +1868,17 @@ static void admin_refresh_clicked(GtkWidget *widget, gpointer user_data)
 static void admin_add_user_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
+    UserRole role = admin_action_role(widget);
     const char *name =
-        entry_placeholder_value(state->adminUserName);
+        entry_placeholder_value(admin_user_name(state, role));
     const char *email =
-        entry_placeholder_value(state->adminUserEmail);
+        entry_placeholder_value(admin_user_email(state, role));
     const char *password =
-        entry_placeholder_value(state->adminUserPassword);
+        entry_placeholder_value(admin_user_password(state, role));
     User user;
-    UserRole role = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserRole)) == 1 ?
-                   USER_AGENT : USER_CITIZEN;
-    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
-    (void)widget;
+    int active = role == USER_AGENT ?
+                 gtk_combo_box_get_active(GTK_COMBO_BOX(
+                     state->adminAgentParking)) : 0;
     if (!valid_auth_field(name) || !valid_email(email) ||
         !valid_auth_field(password)) {
         show_message(state, GTK_MESSAGE_ERROR, "Invalid user details",
@@ -1871,37 +1907,33 @@ static void admin_add_user_clicked(GtkWidget *widget, gpointer user_data)
 static void admin_edit_user_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
-    int id = tree_selected_first_id(state, state->adminUsers);
+    UserRole role = admin_action_role(widget);
+    int id = tree_selected_first_id(state, admin_user_tree(state, role));
     User user;
-    int i, active;
-    int targetAgent;
-    int originalAgent;
-    (void)widget;
+    int active;
     if (id == 0 || !admin_get_user(state->data, id, &user)) {
         show_message(state, GTK_MESSAGE_WARNING, "No user selected",
-                     "Select a user or agent from the list first.");
+                     "Select an account from the list first.");
         return;
     }
-    targetAgent =
-        gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserRole)) == 1;
-    originalAgent = user.role == USER_AGENT;
     snprintf(user.name, sizeof(user.name), "%s",
-             entry_placeholder_value(state->adminUserName));
+             entry_placeholder_value(admin_user_name(state, role)));
     snprintf(user.email, sizeof(user.email), "%s",
-             entry_placeholder_value(state->adminUserEmail));
+             entry_placeholder_value(admin_user_email(state, role)));
     snprintf(user.password, sizeof(user.password), "%s",
-             entry_placeholder_value(state->adminUserPassword));
-    active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
-    user.assignedParkingId = active > 0 && active - 1 < state->data->parkingCount ?
+             entry_placeholder_value(admin_user_password(state, role)));
+    active = role == USER_AGENT ?
+             gtk_combo_box_get_active(GTK_COMBO_BOX(
+                 state->adminAgentParking)) : 0;
+    user.assignedParkingId = role == USER_AGENT &&
+                             active > 0 &&
+                             active - 1 < state->data->parkingCount ?
                              state->data->parkings[active - 1].id : 0;
-    if (targetAgent)
-        user.role = USER_AGENT;
-    else
-        user.role = USER_CITIZEN;
-    i = targetAgent && originalAgent ?
-        admin_update_agent(state->data, &user) :
-        admin_update_user(state->data, &user);
-    if (i) {
+    user.role = role;
+    active = role == USER_AGENT ?
+             admin_update_agent(state->data, &user) :
+             admin_update_user(state->data, &user);
+    if (active) {
         show_message(state, GTK_MESSAGE_INFO, "User updated",
                      "The selected account was updated.");
         refresh_admin_tables(state);
@@ -1914,8 +1946,9 @@ static void admin_edit_user_clicked(GtkWidget *widget, gpointer user_data)
 static void admin_assign_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
-    int agentId = tree_selected_first_id(state, state->adminUsers);
-    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(state->adminUserParking));
+    int agentId = tree_selected_first_id(state, state->adminAgents);
+    int active = gtk_combo_box_get_active(GTK_COMBO_BOX(
+        state->adminAgentParking));
     (void)widget;
     if (agentId == 0 || active <= 0) {
         show_message(state, GTK_MESSAGE_WARNING, "Assignment incomplete",
@@ -1930,6 +1963,42 @@ static void admin_assign_clicked(GtkWidget *widget, gpointer user_data)
     } else {
         show_message(state, GTK_MESSAGE_ERROR, "Assignment failed",
                      "Select an agent and assign a valid parking.");
+    }
+}
+
+static void admin_user_row_selected(GtkTreeSelection *selection,
+                                    gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    UserRole role = (UserRole)GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(selection), "parky-role"));
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    gchar *textId = NULL;
+    User user;
+    int i;
+
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+        return;
+    gtk_tree_model_get(model, &iter, 0, &textId, -1);
+    if (textId == NULL || !admin_get_user(state->data, atoi(textId), &user)) {
+        g_free(textId);
+        return;
+    }
+    g_free(textId);
+    gtk_entry_set_text(GTK_ENTRY(admin_user_name(state, role)), user.name);
+    gtk_entry_set_text(GTK_ENTRY(admin_user_email(state, role)), user.email);
+    gtk_entry_set_text(GTK_ENTRY(admin_user_password(state, role)),
+                       user.password);
+    if (role == USER_AGENT) {
+        gtk_combo_box_set_active(GTK_COMBO_BOX(state->adminAgentParking), 0);
+        for (i = 0; i < state->data->parkingCount; ++i) {
+            if (state->data->parkings[i].id == user.assignedParkingId) {
+                gtk_combo_box_set_active(GTK_COMBO_BOX(
+                    state->adminAgentParking), i + 1);
+                break;
+            }
+        }
     }
 }
 
@@ -2115,7 +2184,9 @@ static GtkWidget *admin_view(UiState *state)
     };
     GtkWidget *occupancyCard;
     GtkWidget *usersTab = gtk_hpaned_new();
+    GtkWidget *agentsTab = gtk_hpaned_new();
     GtkWidget *usersPanel = gtk_vbox_new(FALSE, 8);
+    GtkWidget *agentsPanel = gtk_vbox_new(FALSE, 8);
     GtkWidget *parkingsTab = gtk_hpaned_new();
     GtkWidget *parkingPanel = gtk_vbox_new(FALSE, 8);
     GtkWidget *complaintsTab = gtk_hpaned_new();
@@ -2123,17 +2194,19 @@ static GtkWidget *admin_view(UiState *state)
     GtkListStore *store;
     GtkWidget *tree;
     GtkTreeSelection *selection;
-    GtkWidget *roleCombo = gtk_combo_box_new_text();
     GtkWidget *parkingCombo = gtk_combo_box_new_text();
-    GtkWidget *addUser, *editUser, *deleteUser, *assignAgent;
+    GtkWidget *addUser, *editUser, *deleteUser;
+    GtkWidget *addAgent, *editAgent, *deleteAgent, *assignAgent;
     GtkWidget *addParking, *updateParking, *deleteParking;
     GtkWidget *resolveComplaint, *deleteComplaint;
     GtkWidget *userActions, *userActionsAlign;
+    GtkWidget *agentActions, *agentActionsAlign;
     GtkWidget *parkingActions, *parkingActionsAlign;
     GtkWidget *complaintActions, *complaintActionsAlign;
     GtkWidget *detailScroller;
-    const char *userTitles[] = {
-        "ID", "Username", "Email", "Role", "Assigned Parking"
+    const char *userTitles[] = {"ID", "Username", "Email"};
+    const char *agentTitles[] = {
+        "ID", "Username", "Email", "Assigned Parking"
     };
     const char *parkingTitles[] = {
         "ID", "Name", "Address/Zone", "Total Spots",
@@ -2199,61 +2272,49 @@ static GtkWidget *admin_view(UiState *state)
     g_signal_connect(refresh, "clicked",
                      G_CALLBACK(admin_refresh_clicked), state);
 
-    state->adminUsers = make_tree_view("Users & Agents", &store,
-                                       userTitles, 5);
+    state->adminUsers = make_tree_view("Citizens", &store,
+                                       userTitles, 3);
     gtk_widget_set_size_request(state->adminUsers, 600, 420);
     gtk_paned_pack1(GTK_PANED(usersTab), state->adminUsers, TRUE, FALSE);
-    gtk_combo_box_append_text(GTK_COMBO_BOX(roleCombo), "Citizen");
-    gtk_combo_box_append_text(GTK_COMBO_BOX(roleCombo), "Agent");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(roleCombo), 0);
     gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo), "Unassigned");
     for (i = 0; i < state->data->parkingCount; ++i)
         gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo),
                                   state->data->parkings[i].name);
     gtk_combo_box_set_active(GTK_COMBO_BOX(parkingCombo), 0);
-    state->adminUserRole = roleCombo;
-    state->adminUserParking = parkingCombo;
     usersPanel = gtk_vbox_new(FALSE, 6);
     gtk_container_set_border_width(GTK_CONTAINER(usersPanel), 8);
-    gtk_widget_set_size_request(usersPanel, 320, -1);
+    gtk_widget_set_size_request(usersPanel, 290, -1);
     gtk_box_pack_start(GTK_BOX(usersPanel),
-                       gtk_label_new("Account Management"), FALSE, FALSE, 4);
+                       gtk_label_new("Citizen Management"), FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(usersPanel),
                        account_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
-                                         &state->adminUserName),
+                                         &state->adminCitizenName),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminUserName, "Username");
+    set_entry_placeholder(state->adminCitizenName, "Username");
     gtk_box_pack_start(GTK_BOX(usersPanel),
                        account_entry_row(GTK_STOCK_NETWORK,
-                                         &state->adminUserEmail),
+                                         &state->adminCitizenEmail),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminUserEmail, "Email");
+    set_entry_placeholder(state->adminCitizenEmail, "Email");
     gtk_box_pack_start(GTK_BOX(usersPanel),
                        account_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
-                                         &state->adminUserPassword),
+                                         &state->adminCitizenPassword),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminUserPassword, "Password");
-    gtk_box_pack_start(GTK_BOX(usersPanel), roleCombo, FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(usersPanel), parkingCombo, FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminCitizenPassword, "Password");
 
-    addUser = make_icon_button(GTK_STOCK_ADD, "Add user or agent");
-    editUser = make_icon_button(GTK_STOCK_EDIT, "Edit selected account");
-    deleteUser = make_icon_button(GTK_STOCK_DELETE, "Delete selected account");
-    assignAgent = make_icon_button(GTK_STOCK_APPLY,
-                                   "Assign selected agent to parking");
+    addUser = make_icon_button(GTK_STOCK_ADD, "Add citizen");
+    editUser = make_icon_button(GTK_STOCK_EDIT, "Edit selected citizen");
+    deleteUser = make_icon_button(GTK_STOCK_DELETE, "Delete selected citizen");
     style_button(addUser, "#287A4D", "#FFFFFF");
     style_button(editUser, "#1F5FBF", "#FFFFFF");
     style_button(deleteUser, "#B33A3A", "#FFFFFF");
-    style_button(assignAgent, "#F2A900", "#1B2A4A");
     gtk_widget_set_size_request(addUser, 48, 36);
     gtk_widget_set_size_request(editUser, 48, 36);
     gtk_widget_set_size_request(deleteUser, 48, 36);
-    gtk_widget_set_size_request(assignAgent, 48, 36);
     userActions = gtk_hbox_new(FALSE, 10);
     gtk_box_pack_start(GTK_BOX(userActions), addUser, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(userActions), editUser, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(userActions), deleteUser, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(userActions), assignAgent, FALSE, FALSE, 0);
     userActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
     gtk_container_add(GTK_CONTAINER(userActionsAlign), userActions);
     gtk_box_pack_start(GTK_BOX(usersPanel), userActionsAlign,
@@ -2261,15 +2322,95 @@ static GtkWidget *admin_view(UiState *state)
     gtk_paned_pack2(GTK_PANED(usersTab), usersPanel, FALSE, FALSE);
     gtk_paned_set_position(GTK_PANED(usersTab), 760);
     gtk_notebook_append_page(GTK_NOTEBOOK(tabs), usersTab,
-                             gtk_label_new("Users & Agents"));
+                             gtk_label_new("Users"));
+    set_admin_action_role(addUser, USER_CITIZEN);
+    set_admin_action_role(editUser, USER_CITIZEN);
+    set_admin_action_role(deleteUser, USER_CITIZEN);
     g_signal_connect(addUser, "clicked",
                      G_CALLBACK(admin_add_user_clicked), state);
     g_signal_connect(editUser, "clicked",
                      G_CALLBACK(admin_edit_user_clicked), state);
     g_signal_connect(deleteUser, "clicked",
                      G_CALLBACK(delete_user_clicked), state);
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(
+        gtk_bin_get_child(GTK_BIN(gtk_bin_get_child(GTK_BIN(
+            state->adminUsers))))));
+    g_object_set_data(G_OBJECT(selection), "parky-role",
+                      GINT_TO_POINTER(USER_CITIZEN));
+    g_signal_connect(selection, "changed",
+                     G_CALLBACK(admin_user_row_selected), state);
+
+    state->adminAgents = make_tree_view("Parking Agents", &store,
+                                        agentTitles, 4);
+    gtk_widget_set_size_request(state->adminAgents, 600, 420);
+    gtk_paned_pack1(GTK_PANED(agentsTab), state->adminAgents, TRUE, FALSE);
+    agentsPanel = gtk_vbox_new(FALSE, 6);
+    gtk_container_set_border_width(GTK_CONTAINER(agentsPanel), 8);
+    gtk_widget_set_size_request(agentsPanel, 290, -1);
+    gtk_box_pack_start(GTK_BOX(agentsPanel),
+                       gtk_label_new("Agent Management"), FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(agentsPanel),
+                       account_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
+                                         &state->adminAgentName),
+                       FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminAgentName, "Username");
+    gtk_box_pack_start(GTK_BOX(agentsPanel),
+                       account_entry_row(GTK_STOCK_NETWORK,
+                                         &state->adminAgentEmail),
+                       FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminAgentEmail, "Email");
+    gtk_box_pack_start(GTK_BOX(agentsPanel),
+                       account_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                         &state->adminAgentPassword),
+                       FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminAgentPassword, "Password");
+    gtk_box_pack_start(GTK_BOX(agentsPanel), parkingCombo,
+                       FALSE, FALSE, 2);
+    addAgent = make_icon_button(GTK_STOCK_ADD, "Add agent");
+    editAgent = make_icon_button(GTK_STOCK_EDIT, "Edit selected agent");
+    deleteAgent = make_icon_button(GTK_STOCK_DELETE, "Delete selected agent");
+    assignAgent = make_icon_button(GTK_STOCK_APPLY,
+                                   "Assign selected agent to parking");
+    style_button(addAgent, "#287A4D", "#FFFFFF");
+    style_button(editAgent, "#1F5FBF", "#FFFFFF");
+    style_button(deleteAgent, "#B33A3A", "#FFFFFF");
+    style_button(assignAgent, "#F2A900", "#1B2A4A");
+    gtk_widget_set_size_request(addAgent, 48, 36);
+    gtk_widget_set_size_request(editAgent, 48, 36);
+    gtk_widget_set_size_request(deleteAgent, 48, 36);
+    gtk_widget_set_size_request(assignAgent, 48, 36);
+    agentActions = gtk_hbox_new(FALSE, 10);
+    gtk_box_pack_start(GTK_BOX(agentActions), addAgent, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(agentActions), editAgent, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(agentActions), deleteAgent, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(agentActions), assignAgent, FALSE, FALSE, 0);
+    agentActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(agentActionsAlign), agentActions);
+    gtk_box_pack_start(GTK_BOX(agentsPanel), agentActionsAlign,
+                       FALSE, FALSE, 2);
+    gtk_paned_pack2(GTK_PANED(agentsTab), agentsPanel, FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(agentsTab), 760);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), agentsTab,
+                             gtk_label_new("Agents"));
+    set_admin_action_role(addAgent, USER_AGENT);
+    set_admin_action_role(editAgent, USER_AGENT);
+    set_admin_action_role(deleteAgent, USER_AGENT);
+    set_admin_action_role(assignAgent, USER_AGENT);
+    g_signal_connect(addAgent, "clicked",
+                     G_CALLBACK(admin_add_user_clicked), state);
+    g_signal_connect(editAgent, "clicked",
+                     G_CALLBACK(admin_edit_user_clicked), state);
+    g_signal_connect(deleteAgent, "clicked",
+                     G_CALLBACK(delete_user_clicked), state);
     g_signal_connect(assignAgent, "clicked",
                      G_CALLBACK(admin_assign_clicked), state);
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(
+        gtk_bin_get_child(GTK_BIN(gtk_bin_get_child(GTK_BIN(
+            state->adminAgents))))));
+    g_object_set_data(G_OBJECT(selection), "parky-role",
+                      GINT_TO_POINTER(USER_AGENT));
+    g_signal_connect(selection, "changed",
+                     G_CALLBACK(admin_user_row_selected), state);
 
     state->adminParkings = make_tree_view("Parkings", &store,
                                           parkingTitles, 7);
