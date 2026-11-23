@@ -279,6 +279,34 @@ static GdkPixbuf *make_parky_logo(void)
     return pixbuf;
 }
 
+static GdkPixbuf *make_default_avatar(const char *initials)
+{
+    GdkPixbuf *pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB,
+                                       TRUE, 8, 36, 36);
+    cairo_surface_t *surface;
+    cairo_t *cr;
+    char letter[2] = {'U', '\0'};
+    gdk_pixbuf_fill(pixbuf, 0x00000000);
+    surface = cairo_image_surface_create_for_data(
+        gdk_pixbuf_get_pixels(pixbuf),
+        CAIRO_FORMAT_ARGB32,
+        36, 36,
+        gdk_pixbuf_get_rowstride(pixbuf));
+    cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, 0.122, 0.373, 0.302);
+    cairo_arc(cr, 18, 18, 16, 0.0, 6.28318);
+    cairo_fill(cr);
+    if (initials != NULL && initials[0] != '\0')
+        letter[0] = initials[0];
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_set_font_size(cr, 15);
+    cairo_move_to(cr, 12, 23);
+    cairo_show_text(cr, letter);
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return pixbuf;
+}
+
 static void apply_theme_recursive(GtkWidget *widget,
                                   const GdkColor *background,
                                   const GdkColor *foreground,
@@ -334,9 +362,12 @@ static void load_profile_image(UiState *state)
             return;
         }
     }
-    gtk_image_set_from_stock(GTK_IMAGE(state->profileImage),
-                             GTK_STOCK_DIALOG_AUTHENTICATION,
-                             GTK_ICON_SIZE_DIALOG);
+    {
+        GdkPixbuf *defaultAvatar = make_default_avatar("U");
+        gtk_image_set_from_pixbuf(GTK_IMAGE(state->profileImage),
+                                  defaultAvatar);
+        g_object_unref(defaultAvatar);
+    }
 }
 
 static void choose_profile_photo_clicked(GtkWidget *widget,
@@ -456,7 +487,7 @@ static GtkWidget *make_parky_banner(void)
         "<span foreground='white' size='large' weight='bold'>"
         "PARKY - Smart Parking Management</span>\n"
         "<span foreground='#E5EAF3'>"
-        "Mar7ba bik fi PARKY - Ekri blastek w naddhem wa9tek</span>");
+        "Smart Parking and Urban Mobility Management</span>");
     gtk_box_pack_start(GTK_BOX(box), logo, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 4);
     gtk_container_add(GTK_CONTAINER(event), box);
@@ -468,8 +499,12 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
 {
     GtkWidget *event = gtk_event_box_new();
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
+    GtkWidget *brand = gtk_hbox_new(FALSE, 8);
+    GtkWidget *spacer = gtk_label_new("");
     GtkWidget *profile = gtk_hbox_new(FALSE, 6);
     GdkPixbuf *logoPixbuf = load_parky_logo();
+    GtkWidget *brandTitle = gtk_label_new(NULL);
+    GtkWidget *brandText = gtk_vbox_new(FALSE, 0);
     GtkWidget *avatar;
     GtkWidget *identity = gtk_label_new("User");
     GtkWidget *badge = gtk_label_new(role);
@@ -482,6 +517,7 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     char identityMarkup[128];
     const char *badgeColor;
     int i;
+    int loadedAvatar = 0;
     GdkColor navy;
     if (logoPixbuf == NULL)
         logoPixbuf = make_parky_logo();
@@ -490,6 +526,7 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     gdk_color_parse("#1B2A4A", &navy);
     gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &navy);
     gtk_container_set_border_width(GTK_CONTAINER(header), 8);
+    gtk_widget_set_size_request(avatar, 36, 36);
 
     for (i = 0; i < state->data->userCount; ++i) {
         if (state->data->users[i].id == state->activeUserId) {
@@ -502,11 +539,17 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
                 if (sessionPixbuf != NULL) {
                     gtk_image_set_from_pixbuf(GTK_IMAGE(avatar),
                                               sessionPixbuf);
+                    loadedAvatar = 1;
                     g_object_unref(sessionPixbuf);
                 }
             }
             break;
         }
+    }
+    if (!loadedAvatar) {
+        GdkPixbuf *defaultAvatar = make_default_avatar(name);
+        gtk_image_set_from_pixbuf(GTK_IMAGE(avatar), defaultAvatar);
+        g_object_unref(defaultAvatar);
     }
     snprintf(identityText, sizeof(identityText),
              "Signed in: %s", name);
@@ -523,12 +566,31 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     if (strcmp(role, "ADMIN") == 0) state->adminIdentity = identity;
     else if (strcmp(role, "AGENT") == 0) state->agentIdentity = identity;
     else state->citizenIdentity = identity;
+    {
+        GdkPixbuf *brandLogoPixbuf = gdk_pixbuf_scale_simple(
+            logoPixbuf, 44, 44, GDK_INTERP_BILINEAR);
+        GtkWidget *brandLogo =
+            gtk_image_new_from_pixbuf(brandLogoPixbuf);
+        gtk_label_set_markup(GTK_LABEL(brandTitle),
+            "<span foreground='white' size='large' weight='bold'>PARKY</span>\n"
+            "<span foreground='#E5EAF3' size='small'>"
+            "Smart Parking and Urban Mobility Management</span>");
+        gtk_box_pack_start(GTK_BOX(brandText), brandTitle,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(brand), brandLogo,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(brand), brandText,
+                           FALSE, FALSE, 4);
+        g_object_unref(brandLogoPixbuf);
+    }
+    gtk_box_pack_start(GTK_BOX(header), brand, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(header), spacer, TRUE, TRUE, 0);
     gtk_box_pack_start(GTK_BOX(profile), avatar, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile), identity, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(profile), themeToggle, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(profile), signOut, FALSE, FALSE, 4);
-    gtk_box_pack_end(GTK_BOX(header), profile, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
     style_button(signOut, "#F4F7FB", "#1B2A4A");
     style_button(themeToggle, "#F2A900", "#1B2A4A");
     gtk_container_add(GTK_CONTAINER(event), header);
@@ -857,7 +919,7 @@ static void choose_signup_avatar_clicked(GtkWidget *widget,
     char target[256];
     (void)widget;
     dialog = gtk_file_chooser_dialog_new(
-        "Khtar Taswirtek",
+        "Choose Profile Picture",
         NULL,
         GTK_FILE_CHOOSER_ACTION_OPEN,
         GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
@@ -1451,31 +1513,33 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
 static GtkWidget *signup_view(UiState *state)
 {
     GtkWidget *root = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    GtkWidget *card = rounded_card(420);
+    GtkWidget *card = rounded_card(520);
     GtkWidget *box = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
     GtkWidget *avatar = gtk_image_new_from_stock(
         GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_DIALOG);
     GtkWidget *avatarButton = make_stock_button(
-        "Khtar Taswirtek (Avatar)", GTK_STOCK_OPEN);
+        "Choose Profile Picture", GTK_STOCK_OPEN);
     GtkWidget *createButton = make_stock_button(
         "Create Account", GTK_STOCK_APPLY);
     GtkWidget *backLink = gtk_link_button_new_with_label(
-        "", "3andek compte ? Back to Sign In");
+        "", "Already have an account? Sign In");
     GtkWidget *banner = make_parky_banner();
 
     state->signupAvatarPreview = avatar;
     state->signupAvatarPath[0] = '\0';
-    gtk_container_set_border_width(GTK_CONTAINER(box), 24);
-    gtk_widget_set_size_request(createButton, 372, 40);
+    gtk_container_set_border_width(GTK_CONTAINER(box), 32);
+    gtk_box_set_spacing(GTK_BOX(box), 14);
+    gtk_widget_set_size_request(card, 520, -1);
+    gtk_widget_set_size_request(createButton, 456, 40);
     gtk_label_set_markup(GTK_LABEL(title),
         "<span size='x-large' weight='bold'>Create your PARKY account</span>");
     state->signupUsername = gtk_entry_new();
     state->signupEmail = gtk_entry_new();
     state->signupPassword = gtk_entry_new();
-    gtk_widget_set_size_request(state->signupUsername, 372, 32);
-    gtk_widget_set_size_request(state->signupEmail, 372, 32);
-    gtk_widget_set_size_request(state->signupPassword, 372, 32);
+    gtk_widget_set_size_request(state->signupUsername, 456, 36);
+    gtk_widget_set_size_request(state->signupEmail, 456, 36);
+    gtk_widget_set_size_request(state->signupPassword, 456, 36);
     gtk_entry_set_visibility(GTK_ENTRY(state->signupPassword), FALSE);
     set_entry_placeholder(state->signupUsername, "Username");
     set_entry_placeholder(state->signupEmail, "Email");
@@ -1511,14 +1575,15 @@ static GtkWidget *signup_view(UiState *state)
 static GtkWidget *login_view(UiState *state)
 {
     GtkWidget *root = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    GtkWidget *card = rounded_card(400);
+    GtkWidget *card = rounded_card(520);
     GtkWidget *cardBox = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
     GtkWidget *loginBtn = make_stock_button(
         "Sign in", GTK_STOCK_DIALOG_AUTHENTICATION);
     GtkWidget *signupLink = gtk_link_button_new_with_label(
-        "", "Ma3andekch compte ? Sign Up");
-    gtk_container_set_border_width(GTK_CONTAINER(cardBox), 24);
+        "", "Don't have an account? Sign Up");
+    gtk_container_set_border_width(GTK_CONTAINER(cardBox), 32);
+    gtk_box_set_spacing(GTK_BOX(cardBox), 14);
     gtk_label_set_markup(GTK_LABEL(title),
         "<span size='x-large' weight='bold'>Welcome to PARKY</span>");
     gtk_misc_set_alignment(GTK_MISC(title), 0.5, 0.5);
@@ -1531,12 +1596,12 @@ static GtkWidget *login_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(cardBox),
                        make_labeled_entry("Password", &state->loginPassword),
                        FALSE, FALSE, 0);
-    gtk_widget_set_size_request(card, 400, -1);
-    gtk_widget_set_size_request(state->loginEmail, 352, 32);
-    gtk_widget_set_size_request(state->loginPassword, 352, 32);
+    gtk_widget_set_size_request(card, 520, -1);
+    gtk_widget_set_size_request(state->loginEmail, 456, 36);
+    gtk_widget_set_size_request(state->loginPassword, 456, 36);
     set_entry_placeholder(state->loginEmail, "Username / Email");
-    set_entry_placeholder(state->loginPassword, "Mot de passe");
-    gtk_widget_set_size_request(loginBtn, 352, 40);
+    set_entry_placeholder(state->loginPassword, "Password");
+    gtk_widget_set_size_request(loginBtn, 456, 40);
     style_button(loginBtn, "#287A4D", "#FFFFFF");
     gtk_box_pack_start(GTK_BOX(cardBox), loginBtn, FALSE, FALSE, 8);
     gtk_box_pack_start(GTK_BOX(cardBox), signupLink, FALSE, FALSE, 4);

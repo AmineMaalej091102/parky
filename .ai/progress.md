@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (Modern Auth & Branding)
-- **Completed:** Added a centered 400px login card, dedicated citizen sign-up view, Arabizi banner copy, custom logo loading, and top-right session avatar.
-- **Next Task:** Run final GTK2 auth/layout verification and prepare recruiter-facing documentation.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; auth UI remains linked to the existing citizen storage/backend.
+- **Active Release:** v1.0.0 (English Auth & Session Header)
+- **Completed:** Added English-only auth copy, spacious 520px cards, LTR brand/session packing, and always-visible 36px avatars.
+- **Next Task:** Run final LTR header/auth verification and prepare recruiter-facing documentation.
+- **Blockers/Notes:** `_legacy_raw/` remains excluded; profile avatars persist through existing data/avatars storage.
