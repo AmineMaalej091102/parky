@@ -202,8 +202,7 @@ static void entry_placeholder_focus(GtkWidget *entry,
         gtk_entry_set_text(GTK_ENTRY(entry), "");
     gdk_color_parse("#1B2A4A", &normal);
     gtk_widget_modify_text(entry, GTK_STATE_NORMAL, &normal);
-    if (strcmp(placeholder, "Password") == 0 ||
-        strcmp(placeholder, "Mot de passe") == 0)
+    if (strcmp(placeholder, "Password") == 0)
         gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
 }
 
@@ -218,14 +217,27 @@ static void entry_placeholder_blur(GtkWidget *entry,
     if (gtk_entry_get_text(GTK_ENTRY(entry))[0] == '\0') {
         gtk_entry_set_text(GTK_ENTRY(entry), placeholder);
         gtk_widget_modify_text(entry, GTK_STATE_NORMAL, &gray);
-        if (strcmp(placeholder, "Password") == 0 ||
-            strcmp(placeholder, "Mot de passe") == 0)
+        if (strcmp(placeholder, "Password") == 0)
             gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
     } else {
         GdkColor normal;
         gdk_color_parse("#1B2A4A", &normal);
         gtk_widget_modify_text(entry, GTK_STATE_NORMAL, &normal);
     }
+}
+
+static void placeholder_changed(GtkWidget *entry, gpointer user_data)
+{
+    const char *placeholder = (const char *)user_data;
+    const char *value = gtk_entry_get_text(GTK_ENTRY(entry));
+    GdkColor normal;
+
+    if (strcmp(value, placeholder) == 0)
+        return;
+    gdk_color_parse("#1B2A4A", &normal);
+    gtk_widget_modify_text(entry, GTK_STATE_NORMAL, &normal);
+    if (strcmp(placeholder, "Password") == 0)
+        gtk_entry_set_visibility(GTK_ENTRY(entry), value[0] != '\0');
 }
 
 static void set_entry_placeholder(GtkWidget *entry, const char *text)
@@ -246,69 +258,19 @@ static void set_entry_placeholder(GtkWidget *entry, const char *text)
                      G_CALLBACK(entry_placeholder_blur),
                      g_object_get_data(G_OBJECT(entry),
                                        "parky-placeholder"));
-}
-
-static gboolean rounded_card_expose(GtkWidget *widget,
-                                    GdkEventExpose *event,
-                                    gpointer user_data)
-{
-    cairo_t *cr;
-    gint width;
-    gint height;
-    (void)user_data;
-    (void)event;
-    width = widget->allocation.width;
-    height = widget->allocation.height;
-    cr = gdk_cairo_create(widget->window);
-    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, width - 15, 15, 14, -1.5708, 0.0);
-    cairo_arc(cr, width - 15, height - 15, 14, 0.0, 1.5708);
-    cairo_arc(cr, 15, height - 15, 14, 1.5708, 3.1416);
-    cairo_arc(cr, 15, 15, 14, 3.1416, 4.7124);
-    cairo_close_path(cr);
-    cairo_fill_preserve(cr);
-    cairo_set_source_rgb(cr, 0.85, 0.88, 0.92);
-    cairo_set_line_width(cr, 1.0);
-    cairo_stroke(cr);
-    cairo_destroy(cr);
-    return FALSE;
+    g_signal_connect(entry, "changed",
+                     G_CALLBACK(placeholder_changed),
+                     g_object_get_data(G_OBJECT(entry),
+                                       "parky-placeholder"));
 }
 
 static GtkWidget *rounded_card(int width)
 {
-    GtkWidget *card = gtk_event_box_new();
+    GtkWidget *card = gtk_frame_new(NULL);
+    gtk_frame_set_shadow_type(GTK_FRAME(card), GTK_SHADOW_ETCHED_IN);
     gtk_widget_set_size_request(card, width, -1);
-    g_signal_connect(card, "expose-event",
-                     G_CALLBACK(rounded_card_expose), NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(card), 24);
     return card;
-}
-
-static gboolean rounded_action_expose(GtkWidget *widget,
-                                      GdkEventExpose *event,
-                                      gpointer user_data)
-{
-    cairo_t *cr;
-    gint width;
-    gint height;
-    GdkColor *accent = (GdkColor *)user_data;
-    (void)event;
-    width = widget->allocation.width;
-    height = widget->allocation.height;
-    cr = gdk_cairo_create(widget->window);
-    cairo_set_source_rgb(cr,
-                         accent->red / 65535.0,
-                         accent->green / 65535.0,
-                         accent->blue / 65535.0);
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, width - 11, 11, 10, -1.5708, 0.0);
-    cairo_arc(cr, width - 11, height - 11, 10, 0.0, 1.5708);
-    cairo_arc(cr, 11, height - 11, 10, 1.5708, 3.1416);
-    cairo_arc(cr, 11, 11, 10, 3.1416, 4.7124);
-    cairo_close_path(cr);
-    cairo_fill(cr);
-    cairo_destroy(cr);
-    return FALSE;
 }
 
 static GtkWidget *compact_auth_button(const char *label,
@@ -316,15 +278,11 @@ static GtkWidget *compact_auth_button(const char *label,
                                       const char *accentHex)
 {
     GtkWidget *button = make_stock_button(label, stock);
-    GdkColor *accent = g_new(GdkColor, 1);
-    gdk_color_parse(accentHex, accent);
-    g_object_set_data_full(G_OBJECT(button), "parky-accent",
-                           accent, g_free);
-    gtk_widget_set_size_request(button, 180, 40);
-    g_signal_connect(button, "expose-event",
-                     G_CALLBACK(rounded_action_expose),
-                     g_object_get_data(G_OBJECT(button),
-                                       "parky-accent"));
+    GdkColor accent;
+    gdk_color_parse(accentHex, &accent);
+    gtk_widget_modify_bg(button, GTK_STATE_NORMAL, &accent);
+    gtk_widget_modify_bg(button, GTK_STATE_PRELIGHT, &accent);
+    gtk_widget_set_size_request(button, 180, 38);
     return button;
 }
 
@@ -344,6 +302,12 @@ static GtkWidget *make_auth_hero(void)
     logoImage = gtk_image_new_from_pixbuf(logo);
     gtk_misc_set_alignment(GTK_MISC(line1), 0.5, 0.5);
     gtk_misc_set_alignment(GTK_MISC(line2), 0.5, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(line1), TRUE);
+    gtk_label_set_line_wrap(GTK_LABEL(line2), TRUE);
+    gtk_label_set_justify(GTK_LABEL(line1), GTK_JUSTIFY_CENTER);
+    gtk_label_set_justify(GTK_LABEL(line2), GTK_JUSTIFY_CENTER);
+    gtk_widget_set_size_request(line1, 480, -1);
+    gtk_widget_set_size_request(line2, 480, -1);
     gtk_box_pack_start(GTK_BOX(hero), logoImage, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(hero), line1, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(hero), line2, FALSE, FALSE, 0);
@@ -1602,10 +1566,15 @@ static GtkWidget *signup_view(UiState *state)
     GtkWidget *card = rounded_card(520);
     GtkWidget *box = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
-    GtkWidget *avatar = gtk_image_new_from_stock(
-        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_DIALOG);
+    GdkPixbuf *signupFallback =
+        make_default_avatar("U");
+    GtkWidget *avatar =
+        gtk_image_new_from_pixbuf(signupFallback);
+    g_object_unref(signupFallback);
     GtkWidget *avatarButton = make_stock_button(
         "Choose Profile Picture", GTK_STOCK_OPEN);
+    GtkWidget *avatarRow = gtk_hbox_new(FALSE, 10);
+    GtkWidget *avatarAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
     GtkWidget *createButton = compact_auth_button(
         "Create Account", GTK_STOCK_APPLY, "#10B981");
     GtkWidget *backLink = gtk_link_button_new_with_label(
@@ -1648,16 +1617,19 @@ static GtkWidget *signup_view(UiState *state)
     set_entry_placeholder(state->signupUsername, "Username");
     set_entry_placeholder(state->signupEmail, "Email");
     set_entry_placeholder(state->signupPassword, "Password");
-    gtk_widget_set_size_request(avatar, 96, 96);
+    gtk_widget_set_size_request(avatar, 48, 48);
+    gtk_widget_set_size_request(avatarButton, 200, 34);
+    style_button(avatarButton, "#1F5FBF", "#FFFFFF");
 
     gtk_container_add(GTK_CONTAINER(heroAlignment),
                       make_auth_hero());
     gtk_box_pack_start(GTK_BOX(box), heroAlignment,
                        FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(box), avatar, FALSE, FALSE, 8);
-    style_button(avatarButton, "#1F5FBF", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(box), avatarButton, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(avatarRow), avatar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(avatarRow), avatarButton, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(avatarAlign), avatarRow);
+    gtk_box_pack_start(GTK_BOX(box), avatarAlign, FALSE, FALSE, 8);
     style_button(createButton, "#287A4D", "#FFFFFF");
     {
         GtkWidget *createAlignment =
@@ -1722,6 +1694,7 @@ static GtkWidget *login_view(UiState *state)
     gtk_widget_set_size_request(state->loginPassword, 330, 36);
     set_entry_placeholder(state->loginEmail, "Username / Email");
     set_entry_placeholder(state->loginPassword, "Password");
+    gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), TRUE);
     gtk_widget_set_size_request(loginBtn, 180, 40);
     {
         GtkWidget *loginAlignment =
@@ -1737,6 +1710,7 @@ static GtkWidget *login_view(UiState *state)
     g_signal_connect(loginBtn, "clicked", G_CALLBACK(login_clicked), state);
     g_signal_connect(signupLink, "clicked",
                      G_CALLBACK(open_signup_clicked), state);
+    gtk_widget_grab_focus(loginBtn);
     return root;
 }
 

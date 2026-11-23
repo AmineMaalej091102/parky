@@ -13,3 +13,4 @@
 13 amira citizen123 amira@demo.tn 3 0 none
 14 nour citizen123 nour@demo.tn 3 0 none
 15 karim1 citizen123 karim1@demo.tn 3 0 data/avatars/signup-15.jpg
+16 amine1 citizen123 amine1@demo.tn 3 0 data/avatars/user-16.jpg
