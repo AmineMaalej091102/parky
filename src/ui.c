@@ -50,8 +50,6 @@ typedef struct {
     GtkWidget *signupUsername;
     GtkWidget *signupEmail;
     GtkWidget *signupPassword;
-    GtkWidget *signupAvatarPreview;
-    char signupAvatarPath[PARKY_TEXT_LENGTH];
     GtkWidget *status;
     GtkWidget *citizenName;
     GtkWidget *citizenAddress;
@@ -80,6 +78,7 @@ static void set_status(UiState *state, const char *message);
 static void set_page(UiState *state, int page);
 static void refresh_dashboard_identity(UiState *state);
 static GdkPixbuf *make_parky_logo(void);
+static void set_entry_placeholder(GtkWidget *entry, const char *text);
 
 static gint show_dialog(GtkWindow *parent, GtkMessageType type,
                         const char *title, const char *msg)
@@ -183,21 +182,34 @@ static GtkWidget *make_labeled_entry(const char *label, GtkWidget **entry)
     return box;
 }
 
-static GtkWidget *make_auth_row(const char *iconStock,
-                                GtkWidget **entry,
-                                GtkSizeGroup *sizeGroup)
+static GtkWidget *account_entry_row(const char *iconStock,
+                                    GtkWidget **entry)
 {
-    GtkWidget *row = gtk_hbox_new(FALSE, 10);
+    GtkWidget *box = gtk_hbox_new(FALSE, 8);
     GtkWidget *icon = gtk_image_new_from_stock(
         iconStock, GTK_ICON_SIZE_BUTTON);
     GtkWidget *text = gtk_entry_new();
     gtk_widget_set_size_request(icon, 20, 20);
+    gtk_widget_set_size_request(text, 240, 34);
+    gtk_entry_set_alignment(GTK_ENTRY(text), 0.5);
+    gtk_entry_set_visibility(GTK_ENTRY(text), TRUE);
+    gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), text, FALSE, FALSE, 0);
+    *entry = text;
+    return box;
+}
+
+static GtkWidget *make_auth_row(const char *iconStock,
+                                const char *placeholder,
+                                GtkWidget **entry,
+                                GtkSizeGroup *sizeGroup)
+{
+    GtkWidget *row = account_entry_row(iconStock, entry);
+    GtkWidget *text = *entry;
     gtk_widget_set_size_request(text, 320, 38);
     if (sizeGroup != NULL)
         gtk_size_group_add_widget(sizeGroup, text);
-    gtk_box_pack_start(GTK_BOX(row), icon, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), text, FALSE, FALSE, 0);
-    *entry = text;
+    set_entry_placeholder(text, placeholder);
     return row;
 }
 
@@ -476,7 +488,7 @@ static void apply_light_theme(GtkWidget *widget)
         return;
     if (GTK_IS_EVENT_BOX(widget) || GTK_IS_BUTTON(widget))
         return;
-    gdk_color_parse("#EEF2F7", &background);
+    gdk_color_parse("#DCE4F0", &background);
     gdk_color_parse("#FFFFFF", &white);
     gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &background);
     if (GTK_IS_ENTRY(widget) || GTK_IS_TEXT_VIEW(widget) ||
@@ -1121,74 +1133,6 @@ static void back_to_login_clicked(GtkWidget *widget, gpointer user_data)
     set_page((UiState *)user_data, 0);
 }
 
-static void choose_signup_avatar_clicked(GtkWidget *widget,
-                                         gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    GtkWidget *dialog;
-    GtkFileFilter *filter;
-    gchar *selected;
-    char target[256];
-    (void)widget;
-    dialog = gtk_file_chooser_dialog_new(
-        "Choose Profile Picture",
-        NULL,
-        GTK_FILE_CHOOSER_ACTION_OPEN,
-        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-        GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
-        NULL);
-    gtk_window_set_transient_for(GTK_WINDOW(dialog),
-                                 GTK_WINDOW(main_window));
-    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
-    gtk_window_set_position(GTK_WINDOW(dialog),
-                            GTK_WIN_POS_CENTER_ON_PARENT);
-    filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "PNG and JPEG images");
-    gtk_file_filter_add_pattern(filter, "*.png");
-    gtk_file_filter_add_pattern(filter, "*.jpg");
-    gtk_file_filter_add_pattern(filter, "*.jpeg");
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
-    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
-        selected = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
-        mkdir("data/avatars", 0755);
-        snprintf(target, sizeof(target),
-                 "data/avatars/signup-%d.jpg",
-                 state->data->userCount + 1);
-        {
-            FILE *source = fopen(selected, "rb");
-            FILE *destination =
-                source != NULL ? fopen(target, "wb") : NULL;
-            char buffer[4096];
-            size_t count;
-            if (source != NULL && destination != NULL) {
-                while ((count = fread(buffer, 1, sizeof(buffer), source)) > 0)
-                    fwrite(buffer, 1, count, destination);
-                snprintf(state->signupAvatarPath,
-                         sizeof(state->signupAvatarPath), "%s", target);
-                {
-                    GdkPixbuf *pixbuf =
-                        gdk_pixbuf_new_from_file_at_scale(
-                            target, 96, 96, TRUE, NULL);
-                    if (pixbuf != NULL) {
-                        gtk_image_set_from_pixbuf(
-                            GTK_IMAGE(state->signupAvatarPreview),
-                            pixbuf);
-                        g_object_unref(pixbuf);
-                    }
-                }
-            } else {
-                show_message(state, GTK_MESSAGE_ERROR,
-                             "Avatar error",
-                             "PARKY could not copy the selected image.");
-            }
-            if (source != NULL) fclose(source);
-            if (destination != NULL) fclose(destination);
-        }
-        g_free(selected);
-    }
-    gtk_widget_destroy(dialog);
-}
-
 static void create_account_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
@@ -1228,8 +1172,6 @@ static void create_account_clicked(GtkWidget *widget, gpointer user_data)
     snprintf(user.name, sizeof(user.name), "%s", username);
     snprintf(user.email, sizeof(user.email), "%s", email);
     snprintf(user.password, sizeof(user.password), "%s", password);
-    snprintf(user.avatarPath, sizeof(user.avatarPath), "%s",
-             state->signupAvatarPath);
     user.role = USER_CITIZEN;
     if (citoyen_register(state->data, &user)) {
         show_message(state, GTK_MESSAGE_INFO, "Account created",
@@ -1721,15 +1663,6 @@ static GtkWidget *signup_view(UiState *state)
     GtkWidget *card = rounded_card(520);
     GtkWidget *box = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
-    GdkPixbuf *signupFallback =
-        make_default_avatar("U");
-    GtkWidget *avatar =
-        gtk_image_new_from_pixbuf(signupFallback);
-    g_object_unref(signupFallback);
-    GtkWidget *avatarButton = make_stock_button(
-        "Choose Profile Picture", GTK_STOCK_OPEN);
-    GtkWidget *avatarRow = gtk_hbox_new(FALSE, 10);
-    GtkWidget *avatarAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
     GtkWidget *createButton = compact_auth_button(
         "Create Account", GTK_STOCK_APPLY, "#10B981");
     GtkWidget *backLink = gtk_link_button_new_with_label(
@@ -1737,8 +1670,6 @@ static GtkWidget *signup_view(UiState *state)
     GtkSizeGroup *authFields = gtk_size_group_new(
         GTK_SIZE_GROUP_HORIZONTAL);
 
-    state->signupAvatarPreview = avatar;
-    state->signupAvatarPath[0] = '\0';
     GtkWidget *heroAlignment =
         gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
     gtk_container_set_border_width(GTK_CONTAINER(box), 32);
@@ -1747,18 +1678,26 @@ static GtkWidget *signup_view(UiState *state)
     gtk_widget_set_size_request(createButton, 180, 40);
     gtk_label_set_markup(GTK_LABEL(title),
         "<span size='x-large' weight='bold'>Create your PARKY account</span>");
+    gtk_container_add(GTK_CONTAINER(heroAlignment),
+                      make_auth_hero());
+    gtk_box_pack_start(GTK_BOX(box), heroAlignment,
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
     gtk_box_pack_start(GTK_BOX(box),
-                       make_auth_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                       make_auth_row(GTK_STOCK_ORIENTATION_PORTRAIT,
+                                     "Username",
                                      &state->signupUsername,
                                      authFields),
                        FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box),
-                       make_auth_row(GTK_STOCK_EDIT,
+                       make_auth_row(GTK_STOCK_NETWORK,
+                                     "Email",
                                      &state->signupEmail,
                                      authFields),
                        FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(box),
                        make_auth_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                     "Password",
                                      &state->signupPassword,
                                      authFields),
                        FALSE, FALSE, 0);
@@ -1766,22 +1705,6 @@ static GtkWidget *signup_view(UiState *state)
     gtk_widget_set_size_request(state->signupEmail, 320, 38);
     gtk_widget_set_size_request(state->signupPassword, 320, 38);
     gtk_entry_set_visibility(GTK_ENTRY(state->signupPassword), TRUE);
-    set_entry_placeholder(state->signupUsername, "Username");
-    set_entry_placeholder(state->signupEmail, "Email");
-    set_entry_placeholder(state->signupPassword, "Password");
-    gtk_widget_set_size_request(avatar, 48, 48);
-    gtk_widget_set_size_request(avatarButton, 200, 34);
-    style_button(avatarButton, "#1F5FBF", "#FFFFFF");
-
-    gtk_container_add(GTK_CONTAINER(heroAlignment),
-                      make_auth_hero());
-    gtk_box_pack_start(GTK_BOX(box), heroAlignment,
-                       FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
-    gtk_box_pack_start(GTK_BOX(avatarRow), avatar, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(avatarRow), avatarButton, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(avatarAlign), avatarRow);
-    gtk_box_pack_start(GTK_BOX(box), avatarAlign, FALSE, FALSE, 8);
     style_button(createButton, "#287A4D", "#FFFFFF");
     {
         GtkWidget *createAlignment =
@@ -1794,12 +1717,11 @@ static GtkWidget *signup_view(UiState *state)
     gtk_container_add(GTK_CONTAINER(card), box);
     gtk_container_add(GTK_CONTAINER(root), card);
 
-    g_signal_connect(avatarButton, "clicked",
-                     G_CALLBACK(choose_signup_avatar_clicked), state);
     g_signal_connect(createButton, "clicked",
                      G_CALLBACK(create_account_clicked), state);
     g_signal_connect(backLink, "clicked",
                      G_CALLBACK(back_to_login_clicked), state);
+    gtk_widget_grab_focus(createButton);
     return root;
 }
 
@@ -1832,20 +1754,20 @@ static GtkWidget *login_view(UiState *state)
     gtk_misc_set_alignment(GTK_MISC(title), 0.5, 0.5);
     gtk_box_pack_start(GTK_BOX(cardBox), title, FALSE, FALSE, 8);
     gtk_box_pack_start(GTK_BOX(cardBox),
-                       make_auth_row(GTK_STOCK_EDIT,
+                       make_auth_row(GTK_STOCK_NETWORK,
+                                     "Email",
                                      &state->loginEmail,
                                      authFields),
                        FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(cardBox),
                        make_auth_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                     "Password",
                                      &state->loginPassword,
                                      authFields),
                        FALSE, FALSE, 0);
     gtk_widget_set_size_request(card, 520, -1);
     gtk_widget_set_size_request(state->loginEmail, 330, 36);
     gtk_widget_set_size_request(state->loginPassword, 330, 36);
-    set_entry_placeholder(state->loginEmail, "Email");
-    set_entry_placeholder(state->loginPassword, "Password");
     gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), TRUE);
     gtk_widget_set_size_request(loginBtn, 180, 40);
     gdk_color_parse("#1B2A4A", &normalBg);
@@ -1895,25 +1817,6 @@ static int next_id_from_parkings(const ParkyData *data)
         if (data->parkings[i].id >= next)
             next = data->parkings[i].id + 1;
     return next;
-}
-
-static GtkWidget *admin_entry_row(const char *iconStock,
-                                  const char *placeholder,
-                                  GtkWidget **entry)
-{
-    GtkWidget *box = gtk_hbox_new(FALSE, 8);
-    GtkWidget *icon = gtk_image_new_from_stock(
-        iconStock, GTK_ICON_SIZE_BUTTON);
-    GtkWidget *text = gtk_entry_new();
-    gtk_widget_set_size_request(icon, 20, 20);
-    gtk_widget_set_size_request(text, 240, 34);
-    gtk_entry_set_alignment(GTK_ENTRY(text), 0.5);
-    set_entry_placeholder(text, placeholder);
-    gtk_entry_set_visibility(GTK_ENTRY(text), TRUE);
-    gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(box), text, FALSE, FALSE, 0);
-    *entry = text;
-    return box;
 }
 
 static void admin_refresh_clicked(GtkWidget *widget, gpointer user_data)
@@ -2222,6 +2125,9 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *addUser, *editUser, *deleteUser, *assignAgent;
     GtkWidget *addParking, *updateParking, *deleteParking;
     GtkWidget *resolveComplaint, *deleteComplaint;
+    GtkWidget *userActions, *userActionsAlign;
+    GtkWidget *parkingActions, *parkingActionsAlign;
+    GtkWidget *complaintActions, *complaintActionsAlign;
     GtkWidget *detailScroller;
     const char *userTitles[] = {
         "ID", "Username", "Email", "Role", "Assigned Parking"
@@ -2310,17 +2216,20 @@ static GtkWidget *admin_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(usersPanel),
                        gtk_label_new("Account Management"), FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(usersPanel),
-                       admin_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
-                                       "Username", &state->adminUserName),
+                       account_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
+                                         &state->adminUserName),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminUserName, "Username");
     gtk_box_pack_start(GTK_BOX(usersPanel),
-                       admin_entry_row(GTK_STOCK_NETWORK,
-                                       "Email", &state->adminUserEmail),
+                       account_entry_row(GTK_STOCK_NETWORK,
+                                         &state->adminUserEmail),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminUserEmail, "Email");
     gtk_box_pack_start(GTK_BOX(usersPanel),
-                       admin_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
-                                       "Password", &state->adminUserPassword),
+                       account_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                         &state->adminUserPassword),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminUserPassword, "Password");
     gtk_box_pack_start(GTK_BOX(usersPanel), roleCombo, FALSE, FALSE, 2);
     gtk_box_pack_start(GTK_BOX(usersPanel), parkingCombo, FALSE, FALSE, 2);
 
@@ -2333,10 +2242,19 @@ static GtkWidget *admin_view(UiState *state)
     style_button(editUser, "#1F5FBF", "#FFFFFF");
     style_button(deleteUser, "#B33A3A", "#FFFFFF");
     style_button(assignAgent, "#F2A900", "#1B2A4A");
-    gtk_box_pack_start(GTK_BOX(usersPanel), addUser, FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(usersPanel), editUser, FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(usersPanel), deleteUser, FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(usersPanel), assignAgent, FALSE, FALSE, 2);
+    gtk_widget_set_size_request(addUser, 48, 36);
+    gtk_widget_set_size_request(editUser, 48, 36);
+    gtk_widget_set_size_request(deleteUser, 48, 36);
+    gtk_widget_set_size_request(assignAgent, 48, 36);
+    userActions = gtk_hbox_new(FALSE, 10);
+    gtk_box_pack_start(GTK_BOX(userActions), addUser, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(userActions), editUser, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(userActions), deleteUser, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(userActions), assignAgent, FALSE, FALSE, 0);
+    userActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(userActionsAlign), userActions);
+    gtk_box_pack_start(GTK_BOX(usersPanel), userActionsAlign,
+                       FALSE, FALSE, 2);
     gtk_paned_pack2(GTK_PANED(usersTab), usersPanel, FALSE, FALSE);
     gtk_paned_set_position(GTK_PANED(usersTab), 760);
     gtk_notebook_append_page(GTK_NOTEBOOK(tabs), usersTab,
@@ -2362,24 +2280,25 @@ static GtkWidget *admin_view(UiState *state)
                        gtk_label_new("Parking Management"),
                        FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       admin_entry_row(GTK_STOCK_DND,
-                                       "Name", &state->adminParkingName),
+                       account_entry_row(GTK_STOCK_DND,
+                                         &state->adminParkingName),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminParkingName, "Name");
     gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       admin_entry_row(GTK_STOCK_JUMP_TO,
-                                       "Address/Zone",
-                                       &state->adminParkingAddress),
+                       account_entry_row(GTK_STOCK_JUMP_TO,
+                                         &state->adminParkingAddress),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminParkingAddress, "Address/Zone");
     gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       admin_entry_row(GTK_STOCK_ADD,
-                                       "Total Spots",
-                                       &state->adminParkingTotal),
+                       account_entry_row(GTK_STOCK_ADD,
+                                         &state->adminParkingTotal),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminParkingTotal, "Total Spots");
     gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       admin_entry_row(GTK_STOCK_APPLY,
-                                       "Available",
-                                       &state->adminParkingAvailable),
+                       account_entry_row(GTK_STOCK_APPLY,
+                                         &state->adminParkingAvailable),
                        FALSE, FALSE, 2);
+    set_entry_placeholder(state->adminParkingAvailable, "Available");
     addParking = make_icon_button(GTK_STOCK_ADD, "Add parking");
     updateParking = make_icon_button(GTK_STOCK_EDIT,
                                      "Update selected parking");
@@ -2388,11 +2307,19 @@ static GtkWidget *admin_view(UiState *state)
     style_button(addParking, "#287A4D", "#FFFFFF");
     style_button(updateParking, "#1F5FBF", "#FFFFFF");
     style_button(deleteParking, "#B33A3A", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(parkingPanel), addParking,
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(parkingPanel), updateParking,
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(parkingPanel), deleteParking,
+    gtk_widget_set_size_request(addParking, 48, 36);
+    gtk_widget_set_size_request(updateParking, 48, 36);
+    gtk_widget_set_size_request(deleteParking, 48, 36);
+    parkingActions = gtk_hbox_new(FALSE, 10);
+    gtk_box_pack_start(GTK_BOX(parkingActions), addParking,
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(parkingActions), updateParking,
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(parkingActions), deleteParking,
+                       FALSE, FALSE, 0);
+    parkingActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(parkingActionsAlign), parkingActions);
+    gtk_box_pack_start(GTK_BOX(parkingPanel), parkingActionsAlign,
                        FALSE, FALSE, 2);
     gtk_paned_pack2(GTK_PANED(parkingsTab), parkingPanel, FALSE, FALSE);
     gtk_paned_set_position(GTK_PANED(parkingsTab), 760);
@@ -2440,9 +2367,17 @@ static GtkWidget *admin_view(UiState *state)
                                        "Delete selected complaint");
     style_button(resolveComplaint, "#287A4D", "#FFFFFF");
     style_button(deleteComplaint, "#B33A3A", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(complaintPanel), resolveComplaint,
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(complaintPanel), deleteComplaint,
+    gtk_widget_set_size_request(resolveComplaint, 48, 36);
+    gtk_widget_set_size_request(deleteComplaint, 48, 36);
+    complaintActions = gtk_hbox_new(FALSE, 10);
+    gtk_box_pack_start(GTK_BOX(complaintActions), resolveComplaint,
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(complaintActions), deleteComplaint,
+                       FALSE, FALSE, 0);
+    complaintActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_container_add(GTK_CONTAINER(complaintActionsAlign),
+                      complaintActions);
+    gtk_box_pack_start(GTK_BOX(complaintPanel), complaintActionsAlign,
                        FALSE, FALSE, 2);
     gtk_paned_pack2(GTK_PANED(complaintsTab), complaintPanel,
                     FALSE, FALSE);

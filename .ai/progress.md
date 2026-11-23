@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 (Lot 4.18 Final Visual Polish)
-- **Completed:** Applied uniform light GTK2 styling, icon-only sign-out/refresh controls, reordered KPI cards, and crisp auth icons.
+﻿- **Active Release:** v1.0.0 (Lot 4.19 Final Visual Polish)
+- **Completed:** Applied slate-blue tint, cleaned sign-up flow, unified account icons, and horizontal CRUD action bars.
 - **Next Task:** Capture a GTK2 visual review of the fixed 1180x740 layout.
 - **Build Status:** Ubuntu 18.04 Docker build passes cleanly with -Wall -Wextra.
