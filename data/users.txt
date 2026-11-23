@@ -1,0 +1,14 @@
+1 admin admin admin@parky.local 1 0 none
+2 agent_sami agent123 sami@parky.tn 2 1 none
+3 agent_nadia agent123 nadia@parky.tn 2 2 none
+4 agent_amine agent123 amine@parky.tn 2 3 none
+5 agent_leila agent123 leila@parky.tn 2 4 none
+6 agent_youssef agent123 youssef@parky.tn 2 5 none
+7 yasmine citizen123 yasmine@demo.tn 3 0 none
+8 karim citizen123 karim@demo.tn 3 0 data/avatars/user-8.jpg
+9 ines citizen123 ines@demo.tn 3 0 none
+10 mehdi citizen123 mehdi@demo.tn 3 0 none
+11 salma citizen123 salma@demo.tn 3 0 none
+12 rami citizen123 rami@demo.tn 3 0 none
+13 amira citizen123 amira@demo.tn 3 0 none
+14 nour citizen123 nour@demo.tn 3 0 none

@@ -21,6 +21,7 @@ typedef struct {
     char name[PARKY_NAME_LENGTH];
     char password[PARKY_NAME_LENGTH];
     char email[PARKY_NAME_LENGTH];
+    char avatarPath[PARKY_TEXT_LENGTH];
     UserRole role;
     int assignedParkingId;
 } User;

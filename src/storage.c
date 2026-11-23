@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #define PARKY_DATA_DIR "data"
 
@@ -10,15 +11,29 @@ static int ensure_data_dir(void)
 {
     struct stat info;
 
-    if (stat(PARKY_DATA_DIR, &info) == 0) {
-        return S_ISDIR(info.st_mode) ? 0 : -1;
+    if (mkdir(PARKY_DATA_DIR, 0755) != 0 && errno != EEXIST) {
+        return -1;
     }
-    return mkdir(PARKY_DATA_DIR, 0755) == 0 ? 0 : -1;
+    if (stat(PARKY_DATA_DIR, &info) != 0 || !S_ISDIR(info.st_mode)) {
+        return -1;
+    }
+    if (mkdir("data/avatars", 0755) != 0 && errno != EEXIST) {
+        return -1;
+    }
+    if (stat("data/avatars", &info) != 0 || !S_ISDIR(info.st_mode)) {
+        return -1;
+    }
+    return 0;
 }
 
 static int file_exists(const char *path)
 {
-    FILE *file = fopen(path, "r");
+    FILE *file;
+
+    if (path == NULL || ensure_data_dir() != 0) {
+        return 0;
+    }
+    file = fopen(path, "r");
 
     if (file == NULL) {
         return 0;
@@ -29,6 +44,9 @@ static int file_exists(const char *path)
 
 void storage_seed(ParkyData *data)
 {
+    if (data == NULL) {
+        return;
+    }
     memset(data, 0, sizeof(*data));
 
     data->users[0].id = 1;
@@ -71,6 +89,9 @@ void storage_seed(ParkyData *data)
 
 int generate_demo_data(ParkyData *data)
 {
+    if (data == NULL) {
+        return 0;
+    }
     static const char *parkingNames[] = {
         "Tunis_Centre", "Lac_1", "Ariana", "Menzah",
         "La_Marsa", "Centre_Urbain_Nord", "Ennasr", "Gammarth",
@@ -224,7 +245,11 @@ int storage_init(ParkyData *data)
         "data/complaints.txt"
     };
     size_t i;
+    int createdOrMissing = 0;
 
+    if (data == NULL) {
+        return -1;
+    }
     if (ensure_data_dir() != 0) {
         return -1;
     }
@@ -235,21 +260,20 @@ int storage_init(ParkyData *data)
         if (!file_exists(requiredFiles[i])) {
             FILE *file = fopen(requiredFiles[i], "w");
             if (file == NULL) {
-                return -1;
+                continue;
             }
             fclose(file);
+            createdOrMissing = 1;
         }
     }
 
-    if (!storage_load(data)) {
-        return -1;
+    if (storage_load(data)) {
+        if (data->parkingCount >= 2) {
+            return 0;
+        }
     }
 
-    if (data->userCount == 0 && data->parkingCount == 0 &&
-        data->serviceCount == 0) {
-        return generate_demo_data(data);
-    }
-    if (data->parkingCount < 2) {
+    if (createdOrMissing || data->parkingCount < 2) {
         return generate_demo_data(data);
     }
     return 0;
@@ -260,6 +284,9 @@ int storage_load(ParkyData *data)
     FILE *file;
     int count;
 
+    if (data == NULL || ensure_data_dir() != 0) {
+        return 0;
+    }
     memset(data, 0, sizeof(*data));
 
     file = fopen("data/users.txt", "r");
@@ -267,14 +294,37 @@ int storage_load(ParkyData *data)
         return 0;
     }
     count = 0;
-    while (count < PARKY_MAX_USERS &&
-           fscanf(file, "%d %63s %63s %63s %d %d",
-                  &data->users[count].id,
-                  data->users[count].name,
-                  data->users[count].password,
-                  data->users[count].email,
-                  (int *)&data->users[count].role,
-                  &data->users[count].assignedParkingId) == 6) {
+    while (count < PARKY_MAX_USERS) {
+        char line[512];
+        int parsed;
+        int roleValue;
+        if (fgets(line, sizeof(line), file) == NULL)
+            break;
+        parsed = sscanf(line, "%d %63s %63s %63s %d %d %127s",
+                        &data->users[count].id,
+                        data->users[count].name,
+                        data->users[count].password,
+                        data->users[count].email,
+                        &roleValue,
+                        &data->users[count].assignedParkingId,
+                        data->users[count].avatarPath);
+        if (parsed == 7) {
+            data->users[count].role = (UserRole)roleValue;
+            if (strcmp(data->users[count].avatarPath, "none") == 0)
+                data->users[count].avatarPath[0] = '\0';
+        } else {
+            parsed = sscanf(line, "%d %63s %63s %63s %d %d",
+                            &data->users[count].id,
+                            data->users[count].name,
+                            data->users[count].password,
+                            data->users[count].email,
+                            &roleValue,
+                            &data->users[count].assignedParkingId);
+            if (parsed != 6)
+                continue;
+            data->users[count].role = (UserRole)roleValue;
+            data->users[count].avatarPath[0] = '\0';
+        }
         ++count;
     }
     data->userCount = count;
@@ -371,6 +421,9 @@ int storage_save(const ParkyData *data)
     FILE *file;
     int i;
 
+    if (data == NULL) {
+        return 0;
+    }
     if (ensure_data_dir() != 0) {
         return 0;
     }
@@ -380,13 +433,15 @@ int storage_save(const ParkyData *data)
         return 0;
     }
     for (i = 0; i < data->userCount; ++i) {
-        fprintf(file, "%d %s %s %s %d %d\n",
+        fprintf(file, "%d %s %s %s %d %d %s\n",
                 data->users[i].id,
                 data->users[i].name,
                 data->users[i].password,
                 data->users[i].email,
                 (int)data->users[i].role,
-                data->users[i].assignedParkingId);
+                data->users[i].assignedParkingId,
+                data->users[i].avatarPath[0] != '\0'
+                    ? data->users[i].avatarPath : "none");
     }
     fclose(file);
 

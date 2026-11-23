@@ -13,7 +13,3 @@ autom4te.cache/
 
 # Temporary migration folder
 _legacy_raw/
-
-# Runtime data & uploaded avatars (auto-generated on first launch)
-data/*
-!data/.gitkeep

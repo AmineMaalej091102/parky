@@ -1,7 +1,10 @@
 #include "ui.h"
 
 #include <gtk/gtk.h>
+#include <cairo.h>
+#include <gdk-pixbuf/gdk-pixbuf.h>
 #include <ctype.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,6 +48,9 @@ typedef struct {
     GtkWidget *agentServiceName;
     GtkWidget *agentServiceDescription;
     GtkWidget *agentServicePrice;
+    GtkWidget *root;
+    GtkWidget *profileImage;
+    int darkTheme;
 } UiState;
 
 static void set_status(UiState *state, const char *message);
@@ -135,20 +141,14 @@ static GtkWidget *make_labeled_entry(const char *label, GtkWidget **entry)
 
 static GtkWidget *make_stock_button(const char *label, const char *stock)
 {
-    GtkWidget *button = gtk_button_new_from_stock(stock);
-    GtkWidget *labelWidget = gtk_bin_get_child(GTK_BIN(button));
-    (void)label;
-    if (GTK_IS_HBOX(labelWidget)) {
-        GList *children = gtk_container_get_children(GTK_CONTAINER(labelWidget));
-        GList *child;
-        for (child = children; child != NULL; child = child->next) {
-            if (GTK_IS_LABEL(child->data)) {
-                gtk_label_set_text(GTK_LABEL(child->data), label);
-                break;
-            }
-        }
-        g_list_free(children);
-    }
+    GtkWidget *button = gtk_button_new();
+    GtkWidget *content = gtk_hbox_new(FALSE, 6);
+    GtkWidget *icon = gtk_image_new_from_stock(
+        stock, GTK_ICON_SIZE_BUTTON);
+    gtk_box_pack_start(GTK_BOX(content), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), gtk_label_new(label),
+                       FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(button), content);
     return button;
 }
 
@@ -161,6 +161,183 @@ static GtkWidget *make_stock_tab(const char *label, const char *stock)
     gtk_box_pack_start(GTK_BOX(tab), gtk_label_new(label),
                        FALSE, FALSE, 0);
     return tab;
+}
+
+static GdkPixbuf *make_parky_logo(void)
+{
+    GdkPixbuf *pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB,
+                                       TRUE, 8, 96, 96);
+    cairo_surface_t *surface;
+    cairo_t *cr;
+    gdk_pixbuf_fill(pixbuf, 0x00000000);
+    surface = cairo_image_surface_create_for_data(
+        gdk_pixbuf_get_pixels(pixbuf),
+        CAIRO_FORMAT_ARGB32,
+        96, 96,
+        gdk_pixbuf_get_rowstride(pixbuf));
+    cr = cairo_create(surface);
+    cairo_set_source_rgb(cr, 0.106, 0.165, 0.290);
+    cairo_rectangle(cr, 4, 4, 88, 88);
+    cairo_fill(cr);
+    cairo_set_line_width(cr, 4);
+    cairo_set_source_rgb(cr, 0.949, 0.663, 0.000);
+    cairo_rectangle(cr, 8, 8, 80, 80);
+    cairo_stroke(cr);
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_set_font_size(cr, 54);
+    cairo_move_to(cr, 29, 67);
+    cairo_show_text(cr, "P");
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return pixbuf;
+}
+
+static void apply_theme_recursive(GtkWidget *widget,
+                                  const GdkColor *background,
+                                  const GdkColor *foreground,
+                                  const GdkColor *base)
+{
+    GList *children;
+    GtkWidget *child;
+
+    if (!GTK_IS_WIDGET(widget))
+        return;
+    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, background);
+    gtk_widget_modify_fg(widget, GTK_STATE_NORMAL, foreground);
+    if (GTK_IS_ENTRY(widget)) {
+        gtk_widget_modify_base(widget, GTK_STATE_NORMAL, base);
+        gtk_widget_modify_text(widget, GTK_STATE_NORMAL, foreground);
+    }
+    if (GTK_IS_TEXT_VIEW(widget)) {
+        gtk_widget_modify_base(widget, GTK_STATE_NORMAL, base);
+        gtk_widget_modify_text(widget, GTK_STATE_NORMAL, foreground);
+    }
+    if (GTK_IS_CONTAINER(widget)) {
+        children = gtk_container_get_children(GTK_CONTAINER(widget));
+        while (children != NULL) {
+            child = GTK_WIDGET(children->data);
+            apply_theme_recursive(child, background,
+                                  foreground, base);
+            children = g_list_delete_link(children, children);
+        }
+    }
+}
+
+static void load_profile_image(UiState *state)
+{
+    int i;
+    const char *path = NULL;
+    GdkPixbuf *pixbuf;
+
+    if (state->profileImage == NULL)
+        return;
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (state->data->users[i].id == state->activeUserId) {
+            path = state->data->users[i].avatarPath;
+            break;
+        }
+    }
+    if (path != NULL && path[0] != '\0') {
+        pixbuf = gdk_pixbuf_new_from_file_at_scale(
+            path, 96, 96, TRUE, NULL);
+        if (pixbuf != NULL) {
+            gtk_image_set_from_pixbuf(GTK_IMAGE(state->profileImage),
+                                      pixbuf);
+            g_object_unref(pixbuf);
+            return;
+        }
+    }
+    gtk_image_set_from_stock(GTK_IMAGE(state->profileImage),
+                             GTK_STOCK_DIALOG_AUTHENTICATION,
+                             GTK_ICON_SIZE_DIALOG);
+}
+
+static void choose_profile_photo_clicked(GtkWidget *widget,
+                                         gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkWidget *dialog;
+    GtkFileFilter *filter;
+    gchar *selected;
+    FILE *source;
+    FILE *destination;
+    char target[256];
+    char buffer[4096];
+    size_t count;
+    int i;
+    (void)widget;
+
+    dialog = gtk_file_chooser_dialog_new(
+        "Choose Profile Photo",
+        NULL,
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+        GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
+        NULL);
+    filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "PNG and JPEG images");
+    gtk_file_filter_add_pattern(filter, "*.png");
+    gtk_file_filter_add_pattern(filter, "*.jpg");
+    gtk_file_filter_add_pattern(filter, "*.jpeg");
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        selected = gtk_file_chooser_get_filename(
+            GTK_FILE_CHOOSER(dialog));
+        mkdir("data/avatars", 0755);
+        snprintf(target, sizeof(target),
+                 "data/avatars/user-%d.jpg", state->activeUserId);
+        source = fopen(selected, "rb");
+        destination = source != NULL ? fopen(target, "wb") : NULL;
+        if (source != NULL && destination != NULL) {
+            while ((count = fread(buffer, 1, sizeof(buffer), source)) > 0)
+                fwrite(buffer, 1, count, destination);
+            fclose(source);
+            fclose(destination);
+            for (i = 0; i < state->data->userCount; ++i) {
+                if (state->data->users[i].id == state->activeUserId) {
+                    snprintf(state->data->users[i].avatarPath,
+                             sizeof(state->data->users[i].avatarPath),
+                             "%s", target);
+                    break;
+                }
+            }
+            if (storage_save(state->data))
+                show_message(state, GTK_MESSAGE_INFO,
+                             "Profile photo saved",
+                             "The profile photo is saved and will remain across sessions.");
+            load_profile_image(state);
+        } else {
+            show_message(state, GTK_MESSAGE_ERROR,
+                         "Profile photo error",
+                         "PARKY could not copy the selected image.");
+            if (source != NULL) fclose(source);
+        }
+        g_free(selected);
+    }
+    gtk_widget_destroy(dialog);
+}
+
+static void theme_changed(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GdkColor background;
+    GdkColor foreground;
+    GdkColor base;
+    (void)widget;
+    state->darkTheme = !state->darkTheme;
+    gdk_color_parse(state->darkTheme ? "#181C24" : "#F4F6F9",
+                    &background);
+    gdk_color_parse(state->darkTheme ? "#F4F6F9" : "#1B2A4A",
+                    &foreground);
+    gdk_color_parse(state->darkTheme ? "#222936" : "#FFFFFF",
+                    &base);
+    apply_theme_recursive(state->root, &background,
+                          &foreground, &base);
+    gtk_button_set_label(GTK_BUTTON(widget),
+                         state->darkTheme ? "Day Theme" : "Dark Theme");
+    set_status(state, state->darkTheme ?
+               "Dark theme enabled" : "Day theme enabled");
 }
 
 static void style_button(GtkWidget *button, const char *background,
@@ -178,8 +355,8 @@ static GtkWidget *make_parky_banner(void)
 {
     GtkWidget *event = gtk_event_box_new();
     GtkWidget *box = gtk_hbox_new(FALSE, 8);
-    GtkWidget *logo = gtk_image_new_from_stock(
-        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    GdkPixbuf *logoPixbuf = make_parky_logo();
+    GtkWidget *logo = gtk_image_new_from_pixbuf(logoPixbuf);
     GtkWidget *title = gtk_label_new(NULL);
     GdkColor navy;
     gdk_color_parse("#1B2A4A", &navy);
@@ -191,6 +368,7 @@ static GtkWidget *make_parky_banner(void)
     gtk_box_pack_start(GTK_BOX(box), logo, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 4);
     gtk_container_add(GTK_CONTAINER(event), box);
+    g_object_unref(logoPixbuf);
     return event;
 }
 
@@ -199,11 +377,13 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     GtkWidget *event = gtk_event_box_new();
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
     GtkWidget *profile = gtk_hbox_new(FALSE, 6);
-    GtkWidget *avatar = gtk_image_new_from_stock(
-        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_LARGE_TOOLBAR);
+    GdkPixbuf *logoPixbuf = make_parky_logo();
+    GtkWidget *avatar = gtk_image_new_from_pixbuf(logoPixbuf);
     GtkWidget *identity = gtk_label_new("User");
     GtkWidget *badge = gtk_label_new(role);
     GtkWidget *signOut = make_stock_button("Sign Out", GTK_STOCK_QUIT);
+    GtkWidget *themeToggle = make_stock_button(
+        "Dark Theme", GTK_STOCK_SELECT_COLOR);
     const char *name = "Guest";
     char identityText[128];
     char badgeMarkup[128];
@@ -241,10 +421,15 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
     gtk_box_pack_end(GTK_BOX(header), signOut, FALSE, FALSE, 8);
+    gtk_box_pack_end(GTK_BOX(header), themeToggle, FALSE, FALSE, 8);
     style_button(signOut, "#F4F7FB", "#1B2A4A");
+    style_button(themeToggle, "#F2A900", "#1B2A4A");
     gtk_container_add(GTK_CONTAINER(event), header);
+    g_object_unref(logoPixbuf);
     g_signal_connect(signOut, "clicked",
                      G_CALLBACK(sign_out_clicked), state);
+    g_signal_connect(themeToggle, "clicked",
+                     G_CALLBACK(theme_changed), state);
     return event;
 }
 
@@ -567,6 +752,7 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
                 continue;
             state->activeUserId = user->id;
             refresh_dashboard_identity(state);
+            load_profile_image(state);
             if (user->role == USER_ADMIN) {
                 refresh_admin_tables(state);
                 set_page(state, 1);
@@ -1217,9 +1403,9 @@ static GtkWidget *agent_view(UiState *state)
     GtkWidget *parkingText = gtk_label_new("");
     GtkWidget *actions = gtk_hbox_new(TRUE, 8);
     GtkWidget *available = make_stock_button(
-        "Mark Parking Available", GTK_STOCK_ADD);
+        "Mark Spot Available (+1)", GTK_STOCK_ADD);
     GtkWidget *occupied = make_stock_button(
-        "Mark Parking Occupied", GTK_STOCK_DELETE);
+        "Mark Spot Occupied (-1)", GTK_STOCK_DELETE);
     GtkWidget *approve = make_stock_button(
         "Approve Selected Reservation", GTK_STOCK_APPLY);
     GtkWidget *reject = make_stock_button(
@@ -1511,6 +1697,9 @@ static GtkWidget *citizen_view(UiState *state)
     {
         GtkWidget *profileCard = gtk_frame_new("Citizen Profile");
         GtkWidget *profileBox = gtk_vbox_new(FALSE, 8);
+        GtkWidget *photoBox = gtk_hbox_new(FALSE, 12);
+        GtkWidget *photoButton = make_stock_button(
+            "Choose Profile Photo", GTK_STOCK_OPEN);
         GtkWidget *profileName = gtk_label_new(NULL);
         GtkWidget *profileEmail = gtk_label_new(NULL);
         GtkWidget *profileRole = gtk_label_new(NULL);
@@ -1535,12 +1724,25 @@ static GtkWidget *citizen_view(UiState *state)
         gtk_label_set_markup(GTK_LABEL(profileRole),
             "<span background='#287A4D' foreground='white' "
             "weight='bold'>  CITIZEN  </span>");
+        state->profileImage = gtk_image_new_from_stock(
+            GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_DIALOG);
+        gtk_widget_set_size_request(state->profileImage, 96, 96);
+        load_profile_image(state);
+        gtk_box_pack_start(GTK_BOX(photoBox), state->profileImage,
+                           FALSE, FALSE, 8);
+        gtk_box_pack_start(GTK_BOX(profileBox), photoBox,
+                           FALSE, FALSE, 8);
         gtk_box_pack_start(GTK_BOX(profileBox), profileName,
                            FALSE, FALSE, 8);
         gtk_box_pack_start(GTK_BOX(profileBox), profileEmail,
                            FALSE, FALSE, 4);
         gtk_box_pack_start(GTK_BOX(profileBox), profileRole,
                            FALSE, FALSE, 4);
+        style_button(photoButton, "#1F5FBF", "#FFFFFF");
+        gtk_box_pack_start(GTK_BOX(profileBox), photoButton,
+                           FALSE, FALSE, 8);
+        g_signal_connect(photoButton, "clicked",
+                         G_CALLBACK(choose_profile_photo_clicked), state);
         gtk_container_set_border_width(GTK_CONTAINER(profileCard), 12);
         gtk_container_add(GTK_CONTAINER(profileCard), profileBox);
         gtk_box_pack_start(GTK_BOX(profileTab), profileCard,
@@ -1617,6 +1819,7 @@ int ui_run(ParkyData *data, int argc, char **argv)
         gtk_box_pack_start(GTK_BOX(root), state.notebook, TRUE, TRUE, 0);
         gtk_box_pack_start(GTK_BOX(root), state.status, FALSE, FALSE, 0);
         gtk_container_add(GTK_CONTAINER(window), root);
+        state.root = root;
     }
 
     gtk_widget_show_all(window);
