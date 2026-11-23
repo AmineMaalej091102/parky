@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (English Auth & Session Header)
-- **Completed:** Added English-only auth copy, spacious 520px cards, LTR brand/session packing, and always-visible 36px avatars.
-- **Next Task:** Run final LTR header/auth verification and prepare recruiter-facing documentation.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; profile avatars persist through existing data/avatars storage.
+- **Active Release:** v1.0.0 (Auth UI Polish)
+- **Completed:** Added gray placeholders, identical auth rows, compact rounded actions, centered 64px logo hero copy, and dashboard-only session banners.
+- **Next Task:** Run final auth alignment/build verification and prepare recruiter-facing documentation.
+- **Blockers/Notes:** `_legacy_raw/` remains excluded; auth presentation uses pure GTK2/Cairo/GdkPixbuf APIs.
