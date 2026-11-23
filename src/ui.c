@@ -72,7 +72,6 @@ typedef struct {
     GtkWidget *agentServicePrice;
     GtkWidget *root;
     GtkWidget *profileImage;
-    int darkTheme;
 } UiState;
 
 static GtkWidget *main_window = NULL;
@@ -190,7 +189,7 @@ static GtkWidget *make_auth_row(const char *iconStock,
 {
     GtkWidget *row = gtk_hbox_new(FALSE, 10);
     GtkWidget *icon = gtk_image_new_from_stock(
-        iconStock, GTK_ICON_SIZE_MENU);
+        iconStock, GTK_ICON_SIZE_BUTTON);
     GtkWidget *text = gtk_entry_new();
     gtk_widget_set_size_request(icon, 20, 20);
     gtk_widget_set_size_request(text, 320, 38);
@@ -466,32 +465,29 @@ static GdkPixbuf *make_default_avatar(const char *initials)
     return pixbuf;
 }
 
-static void apply_theme_recursive(GtkWidget *widget,
-                                  const GdkColor *background,
-                                  const GdkColor *foreground,
-                                  const GdkColor *base)
+static void apply_light_theme(GtkWidget *widget)
 {
     GList *children;
     GtkWidget *child;
+    GdkColor background;
+    GdkColor white;
 
     if (!GTK_IS_WIDGET(widget))
         return;
-    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, background);
-    gtk_widget_modify_fg(widget, GTK_STATE_NORMAL, foreground);
-    if (GTK_IS_ENTRY(widget)) {
-        gtk_widget_modify_base(widget, GTK_STATE_NORMAL, base);
-        gtk_widget_modify_text(widget, GTK_STATE_NORMAL, foreground);
-    }
-    if (GTK_IS_TEXT_VIEW(widget)) {
-        gtk_widget_modify_base(widget, GTK_STATE_NORMAL, base);
-        gtk_widget_modify_text(widget, GTK_STATE_NORMAL, foreground);
+    if (GTK_IS_EVENT_BOX(widget) || GTK_IS_BUTTON(widget))
+        return;
+    gdk_color_parse("#EEF2F7", &background);
+    gdk_color_parse("#FFFFFF", &white);
+    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &background);
+    if (GTK_IS_ENTRY(widget) || GTK_IS_TEXT_VIEW(widget) ||
+        GTK_IS_TREE_VIEW(widget)) {
+        gtk_widget_modify_base(widget, GTK_STATE_NORMAL, &white);
     }
     if (GTK_IS_CONTAINER(widget)) {
         children = gtk_container_get_children(GTK_CONTAINER(widget));
         while (children != NULL) {
             child = GTK_WIDGET(children->data);
-            apply_theme_recursive(child, background,
-                                  foreground, base);
+            apply_light_theme(child);
             children = g_list_delete_link(children, children);
         }
     }
@@ -600,28 +596,6 @@ static void choose_profile_photo_clicked(GtkWidget *widget,
     gtk_widget_destroy(dialog);
 }
 
-static void theme_changed(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    GdkColor background;
-    GdkColor foreground;
-    GdkColor base;
-    (void)widget;
-    state->darkTheme = !state->darkTheme;
-    gdk_color_parse(state->darkTheme ? "#181C24" : "#F4F6F9",
-                    &background);
-    gdk_color_parse(state->darkTheme ? "#F4F6F9" : "#1B2A4A",
-                    &foreground);
-    gdk_color_parse(state->darkTheme ? "#222936" : "#FFFFFF",
-                    &base);
-    apply_theme_recursive(state->root, &background,
-                          &foreground, &base);
-    gtk_button_set_label(GTK_BUTTON(widget),
-                         state->darkTheme ? "Day Theme" : "Dark Theme");
-    set_status(state, state->darkTheme ?
-               "Dark theme enabled" : "Day theme enabled");
-}
-
 static void style_button(GtkWidget *button, const char *background,
                          const char *foreground)
 {
@@ -646,9 +620,7 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     GtkWidget *avatar;
     GtkWidget *identity = gtk_label_new("User");
     GtkWidget *badge = gtk_label_new(role);
-    GtkWidget *signOut = make_stock_button("Sign Out", GTK_STOCK_QUIT);
-    GtkWidget *themeToggle = make_stock_button(
-        "Dark Theme", GTK_STOCK_SELECT_COLOR);
+    GtkWidget *signOut = make_icon_button(GTK_STOCK_QUIT, "Sign Out");
     const char *name = "Guest";
     char identityText[128];
     char badgeMarkup[128];
@@ -728,17 +700,13 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
         gtk_box_pack_start(GTK_BOX(profile), identity, FALSE, FALSE, 0);
     }
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(profile), themeToggle, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(profile), signOut, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
     style_button(signOut, "#F4F7FB", "#1B2A4A");
-    style_button(themeToggle, "#F2A900", "#1B2A4A");
     gtk_container_add(GTK_CONTAINER(event), header);
     g_object_unref(logoPixbuf);
     g_signal_connect(signOut, "clicked",
                      G_CALLBACK(sign_out_clicked), state);
-    g_signal_connect(themeToggle, "clicked",
-                     G_CALLBACK(theme_changed), state);
     return event;
 }
 
@@ -1935,7 +1903,7 @@ static GtkWidget *admin_entry_row(const char *iconStock,
 {
     GtkWidget *box = gtk_hbox_new(FALSE, 8);
     GtkWidget *icon = gtk_image_new_from_stock(
-        iconStock, GTK_ICON_SIZE_MENU);
+        iconStock, GTK_ICON_SIZE_BUTTON);
     GtkWidget *text = gtk_entry_new();
     gtk_widget_set_size_request(icon, 20, 20);
     gtk_widget_set_size_request(text, 240, 34);
@@ -2231,9 +2199,9 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *tabs = gtk_notebook_new();
     GtkWidget *overview = gtk_vbox_new(FALSE, 8);
     GtkWidget *kpis = gtk_hbox_new(TRUE, 8);
-    GtkWidget *toolbar = gtk_hbox_new(FALSE, 8);
     GtkWidget *refresh = make_icon_button(GTK_STOCK_REFRESH,
-                                          "Refresh dashboard statistics");
+                                          "Refresh Stats");
+    GtkWidget *occupancyHeader = gtk_hbox_new(FALSE, 8);
     GtkWidget *occupancyTitle = gtk_label_new(NULL);
     GtkListStore *occupancyStore;
     const char *occupancyTitles[] = {
@@ -2278,15 +2246,15 @@ static GtkWidget *admin_view(UiState *state)
     {
         GtkWidget *cards[5];
         const char *titles[5] = {
-            "Global Occupancy", "Total Users", "Total Parkings",
-            "Parking Agents", "Pending Complaints"
+            "Total Users", "Total Parkings", "Parking Agents",
+            "Pending Complaints", "Occupancy Rate"
         };
         GtkWidget *values[5];
-        values[0] = state->adminGlobalOccupancy;
-        values[1] = state->adminTotalUsers;
-        values[2] = state->adminTotalParkings;
-        values[3] = state->adminParkingAgents;
-        values[4] = state->adminPendingComplaints;
+        values[0] = state->adminTotalUsers;
+        values[1] = state->adminTotalParkings;
+        values[2] = state->adminParkingAgents;
+        values[3] = state->adminPendingComplaints;
+        values[4] = state->adminGlobalOccupancy;
         for (i = 0; i < 5; ++i) {
             GtkWidget *card = gtk_event_box_new();
             GtkWidget *cardBox = gtk_vbox_new(FALSE, 4);
@@ -2302,14 +2270,16 @@ static GtkWidget *admin_view(UiState *state)
     }
 
     style_button(refresh, "#1F5FBF", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(toolbar), refresh, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(overview), toolbar, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(overview), kpis, FALSE, FALSE, 4);
     gtk_label_set_markup(GTK_LABEL(occupancyTitle),
                          "<span size='large' weight='bold'>"
                          "Parking Occupancy &amp; Revenue Summary"
                          "</span>");
-    gtk_box_pack_start(GTK_BOX(overview), occupancyTitle, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(occupancyHeader), occupancyTitle,
+                       TRUE, TRUE, 0);
+    gtk_box_pack_end(GTK_BOX(occupancyHeader), refresh, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(overview), occupancyHeader,
+                       FALSE, FALSE, 4);
     occupancyCard = make_tree_view("Occupancy Summary", &occupancyStore,
                                    occupancyTitles, 5);
     state->adminOccupancy = occupancyCard;
@@ -2927,6 +2897,7 @@ int ui_run(ParkyData *data, int argc, char **argv)
         state.root = root;
     }
 
+    apply_light_theme(window);
     gtk_widget_show_all(window);
     set_status(&state, "Parky ready");
     gtk_main();
