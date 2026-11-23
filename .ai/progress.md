@@ -1,5 +1,5 @@
 # Current Status
-- **Active Release:** v1.0.0 (UI Label Restoration)
-- **Completed:** Restored accurate reference button/tab labels while keeping theme, logo, profile photo, and Citizen navigation additions.
-- **Next Task:** Run final label/callback verification and prepare recruiter-facing documentation.
-- **Blockers/Notes:** `_legacy_raw/` remains excluded; all visible UI labels now match their GTK callbacks.
+- **Active Release:** v1.0.0 (Modern Auth & Branding)
+- **Completed:** Added a centered 400px login card, dedicated citizen sign-up view, Arabizi banner copy, custom logo loading, and top-right session avatar.
+- **Next Task:** Run final GTK2 auth/layout verification and prepare recruiter-facing documentation.
+- **Blockers/Notes:** `_legacy_raw/` remains excluded; auth UI remains linked to the existing citizen storage/backend.

@@ -13,3 +13,6 @@ autom4te.cache/
 
 # Temporary migration folder
 _legacy_raw/
+
+# uploaded avatars
+data/avatars/*

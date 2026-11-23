@@ -30,6 +30,11 @@ typedef struct {
     GtkWidget *citizenReviews;
     GtkWidget *loginEmail;
     GtkWidget *loginPassword;
+    GtkWidget *signupUsername;
+    GtkWidget *signupEmail;
+    GtkWidget *signupPassword;
+    GtkWidget *signupAvatarPreview;
+    char signupAvatarPath[PARKY_TEXT_LENGTH];
     GtkWidget *status;
     GtkWidget *citizenName;
     GtkWidget *citizenAddress;
@@ -150,6 +155,88 @@ static GtkWidget *make_stock_button(const char *label, const char *stock)
                        FALSE, FALSE, 0);
     gtk_container_add(GTK_CONTAINER(button), content);
     return button;
+}
+
+static GdkPixbuf *load_parky_logo(void)
+{
+    GdkPixbuf *logo = gdk_pixbuf_new_from_file_at_scale(
+        "assets/logo.png", 72, 72, TRUE, NULL);
+    if (logo == NULL)
+        logo = gdk_pixbuf_new_from_file_at_scale(
+            "assets/logo.jpg", 72, 72, TRUE, NULL);
+    return logo;
+}
+
+static void entry_placeholder_focus(GtkWidget *entry,
+                                    GdkEventFocus *event,
+                                    gpointer user_data)
+{
+    const char *placeholder = (const char *)user_data;
+    (void)event;
+    if (gtk_entry_get_text(GTK_ENTRY(entry)) &&
+        strcmp(gtk_entry_get_text(GTK_ENTRY(entry)), placeholder) == 0)
+        gtk_entry_set_text(GTK_ENTRY(entry), "");
+}
+
+static void entry_placeholder_blur(GtkWidget *entry,
+                                   GdkEventFocus *event,
+                                   gpointer user_data)
+{
+    const char *placeholder = (const char *)user_data;
+    (void)event;
+    if (gtk_entry_get_text(GTK_ENTRY(entry))[0] == '\0')
+        gtk_entry_set_text(GTK_ENTRY(entry), placeholder);
+}
+
+static void set_entry_placeholder(GtkWidget *entry, const char *text)
+{
+    gtk_entry_set_text(GTK_ENTRY(entry), text);
+    g_object_set_data_full(G_OBJECT(entry), "parky-placeholder",
+                           g_strdup(text), g_free);
+    g_signal_connect(entry, "focus-in-event",
+                     G_CALLBACK(entry_placeholder_focus),
+                     g_object_get_data(G_OBJECT(entry),
+                                       "parky-placeholder"));
+    g_signal_connect(entry, "focus-out-event",
+                     G_CALLBACK(entry_placeholder_blur),
+                     g_object_get_data(G_OBJECT(entry),
+                                       "parky-placeholder"));
+}
+
+static gboolean rounded_card_expose(GtkWidget *widget,
+                                    GdkEventExpose *event,
+                                    gpointer user_data)
+{
+    cairo_t *cr;
+    gint width;
+    gint height;
+    (void)user_data;
+    (void)event;
+    width = widget->allocation.width;
+    height = widget->allocation.height;
+    cr = gdk_cairo_create(widget->window);
+    cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, width - 15, 15, 14, -1.5708, 0.0);
+    cairo_arc(cr, width - 15, height - 15, 14, 0.0, 1.5708);
+    cairo_arc(cr, 15, height - 15, 14, 1.5708, 3.1416);
+    cairo_arc(cr, 15, 15, 14, 3.1416, 4.7124);
+    cairo_close_path(cr);
+    cairo_fill_preserve(cr);
+    cairo_set_source_rgb(cr, 0.85, 0.88, 0.92);
+    cairo_set_line_width(cr, 1.0);
+    cairo_stroke(cr);
+    cairo_destroy(cr);
+    return FALSE;
+}
+
+static GtkWidget *rounded_card(int width)
+{
+    GtkWidget *card = gtk_event_box_new();
+    gtk_widget_set_size_request(card, width, -1);
+    g_signal_connect(card, "expose-event",
+                     G_CALLBACK(rounded_card_expose), NULL);
+    return card;
 }
 
 static GtkWidget *make_stock_tab(const char *label, const char *stock)
@@ -355,8 +442,11 @@ static GtkWidget *make_parky_banner(void)
 {
     GtkWidget *event = gtk_event_box_new();
     GtkWidget *box = gtk_hbox_new(FALSE, 8);
-    GdkPixbuf *logoPixbuf = make_parky_logo();
-    GtkWidget *logo = gtk_image_new_from_pixbuf(logoPixbuf);
+    GdkPixbuf *logoPixbuf = load_parky_logo();
+    GtkWidget *logo;
+    if (logoPixbuf == NULL)
+        logoPixbuf = make_parky_logo();
+    logo = gtk_image_new_from_pixbuf(logoPixbuf);
     GtkWidget *title = gtk_label_new(NULL);
     GdkColor navy;
     gdk_color_parse("#1B2A4A", &navy);
@@ -364,7 +454,9 @@ static GtkWidget *make_parky_banner(void)
     gtk_container_set_border_width(GTK_CONTAINER(box), 10);
     gtk_label_set_markup(GTK_LABEL(title),
         "<span foreground='white' size='large' weight='bold'>"
-        "PARKY - Smart Parking Management</span>");
+        "PARKY - Smart Parking Management</span>\n"
+        "<span foreground='#E5EAF3'>"
+        "Mar7ba bik fi PARKY - Ekri blastek w naddhem wa9tek</span>");
     gtk_box_pack_start(GTK_BOX(box), logo, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 4);
     gtk_container_add(GTK_CONTAINER(event), box);
@@ -377,8 +469,8 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     GtkWidget *event = gtk_event_box_new();
     GtkWidget *header = gtk_hbox_new(FALSE, 8);
     GtkWidget *profile = gtk_hbox_new(FALSE, 6);
-    GdkPixbuf *logoPixbuf = make_parky_logo();
-    GtkWidget *avatar = gtk_image_new_from_pixbuf(logoPixbuf);
+    GdkPixbuf *logoPixbuf = load_parky_logo();
+    GtkWidget *avatar;
     GtkWidget *identity = gtk_label_new("User");
     GtkWidget *badge = gtk_label_new(role);
     GtkWidget *signOut = make_stock_button("Sign Out", GTK_STOCK_QUIT);
@@ -391,6 +483,10 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     const char *badgeColor;
     int i;
     GdkColor navy;
+    if (logoPixbuf == NULL)
+        logoPixbuf = make_parky_logo();
+    avatar = gtk_image_new_from_pixbuf(logoPixbuf);
+    gtk_widget_set_size_request(avatar, 36, 36);
     gdk_color_parse("#1B2A4A", &navy);
     gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &navy);
     gtk_container_set_border_width(GTK_CONTAINER(header), 8);
@@ -398,6 +494,17 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     for (i = 0; i < state->data->userCount; ++i) {
         if (state->data->users[i].id == state->activeUserId) {
             name = state->data->users[i].name;
+            if (state->data->users[i].avatarPath[0] != '\0') {
+                GdkPixbuf *sessionPixbuf =
+                    gdk_pixbuf_new_from_file_at_scale(
+                        state->data->users[i].avatarPath,
+                        36, 36, TRUE, NULL);
+                if (sessionPixbuf != NULL) {
+                    gtk_image_set_from_pixbuf(GTK_IMAGE(avatar),
+                                              sessionPixbuf);
+                    g_object_unref(sessionPixbuf);
+                }
+            }
             break;
         }
     }
@@ -419,9 +526,9 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     gtk_box_pack_start(GTK_BOX(profile), avatar, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile), identity, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
-    gtk_box_pack_end(GTK_BOX(header), signOut, FALSE, FALSE, 8);
-    gtk_box_pack_end(GTK_BOX(header), themeToggle, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(profile), themeToggle, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(profile), signOut, FALSE, FALSE, 4);
+    gtk_box_pack_end(GTK_BOX(header), profile, FALSE, FALSE, 8);
     style_button(signOut, "#F4F7FB", "#1B2A4A");
     style_button(themeToggle, "#F2A900", "#1B2A4A");
     gtk_container_add(GTK_CONTAINER(event), header);
@@ -497,6 +604,8 @@ static void set_page(UiState *state, int page)
     }
     if (page == 0) {
         gtk_notebook_set_current_page(GTK_NOTEBOOK(state->notebook), 0);
+    } else if (page == 4) {
+        gtk_notebook_set_current_page(GTK_NOTEBOOK(state->notebook), 4);
     } else if (page == 1 && role == USER_ADMIN) {
         gtk_notebook_set_current_page(GTK_NOTEBOOK(state->notebook), 1);
     } else if (page == 2 && role == USER_AGENT) {
@@ -726,6 +835,133 @@ static void refresh_citizen_tables(UiState *state)
     }
 }
 
+static void open_signup_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    set_page((UiState *)user_data, 4);
+}
+
+static void back_to_login_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    set_page((UiState *)user_data, 0);
+}
+
+static void choose_signup_avatar_clicked(GtkWidget *widget,
+                                         gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkWidget *dialog;
+    GtkFileFilter *filter;
+    gchar *selected;
+    char target[256];
+    (void)widget;
+    dialog = gtk_file_chooser_dialog_new(
+        "Khtar Taswirtek",
+        NULL,
+        GTK_FILE_CHOOSER_ACTION_OPEN,
+        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+        GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
+        NULL);
+    filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "PNG and JPEG images");
+    gtk_file_filter_add_pattern(filter, "*.png");
+    gtk_file_filter_add_pattern(filter, "*.jpg");
+    gtk_file_filter_add_pattern(filter, "*.jpeg");
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), filter);
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        selected = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+        mkdir("data/avatars", 0755);
+        snprintf(target, sizeof(target),
+                 "data/avatars/signup-%d.jpg",
+                 state->data->userCount + 1);
+        {
+            FILE *source = fopen(selected, "rb");
+            FILE *destination =
+                source != NULL ? fopen(target, "wb") : NULL;
+            char buffer[4096];
+            size_t count;
+            if (source != NULL && destination != NULL) {
+                while ((count = fread(buffer, 1, sizeof(buffer), source)) > 0)
+                    fwrite(buffer, 1, count, destination);
+                snprintf(state->signupAvatarPath,
+                         sizeof(state->signupAvatarPath), "%s", target);
+                {
+                    GdkPixbuf *pixbuf =
+                        gdk_pixbuf_new_from_file_at_scale(
+                            target, 96, 96, TRUE, NULL);
+                    if (pixbuf != NULL) {
+                        gtk_image_set_from_pixbuf(
+                            GTK_IMAGE(state->signupAvatarPreview),
+                            pixbuf);
+                        g_object_unref(pixbuf);
+                    }
+                }
+            } else {
+                show_message(state, GTK_MESSAGE_ERROR,
+                             "Avatar error",
+                             "PARKY could not copy the selected image.");
+            }
+            if (source != NULL) fclose(source);
+            if (destination != NULL) fclose(destination);
+        }
+        g_free(selected);
+    }
+    gtk_widget_destroy(dialog);
+}
+
+static void create_account_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    const char *username =
+        gtk_entry_get_text(GTK_ENTRY(state->signupUsername));
+    const char *email =
+        gtk_entry_get_text(GTK_ENTRY(state->signupEmail));
+    const char *password =
+        gtk_entry_get_text(GTK_ENTRY(state->signupPassword));
+    User user;
+    int i;
+    (void)widget;
+
+    if (username[0] == '\0' || strcmp(username, "Username") == 0 ||
+        email[0] == '\0' || strcmp(email, "Email") == 0 ||
+        password[0] == '\0' || strcmp(password, "Password") == 0) {
+        show_message(state, GTK_MESSAGE_ERROR, "Missing sign-up fields",
+                     "Please enter a username, email and password.");
+        return;
+    }
+    if (!valid_auth_field(username) || !valid_email(email) ||
+        !valid_auth_field(password)) {
+        show_message(state, GTK_MESSAGE_ERROR, "Invalid sign-up details",
+                     "Use at least 3 characters and no spaces or '|' separators.");
+        return;
+    }
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (strcmp(state->data->users[i].name, username) == 0 ||
+            strcmp(state->data->users[i].email, email) == 0) {
+            show_message(state, GTK_MESSAGE_ERROR, "Duplicate account",
+                         "This username or email is already registered.");
+            return;
+        }
+    }
+    memset(&user, 0, sizeof(user));
+    user.id = state->data->userCount + 1;
+    snprintf(user.name, sizeof(user.name), "%s", username);
+    snprintf(user.email, sizeof(user.email), "%s", email);
+    snprintf(user.password, sizeof(user.password), "%s", password);
+    snprintf(user.avatarPath, sizeof(user.avatarPath), "%s",
+             state->signupAvatarPath);
+    user.role = USER_CITIZEN;
+    if (citoyen_register(state->data, &user)) {
+        show_message(state, GTK_MESSAGE_INFO, "Account created",
+                     "Your PARKY citizen account was created. You can sign in now.");
+        set_page(state, 0);
+    } else {
+        show_message(state, GTK_MESSAGE_ERROR, "Account creation failed",
+                     "PARKY could not create the account. Please try again.");
+    }
+}
+
 static void login_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
@@ -776,70 +1012,6 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
         show_message(state, GTK_MESSAGE_ERROR, "Incorrect password",
                      "The email is valid, but the password is not. Please try again.");
         set_status(state, "Incorrect password");
-    }
-}
-
-static void register_clicked(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    User user;
-    const char *email = gtk_entry_get_text(GTK_ENTRY(state->loginEmail));
-    const char *password = gtk_entry_get_text(GTK_ENTRY(state->loginPassword));
-    const char *at;
-    char username[PARKY_NAME_LENGTH];
-    int i;
-    (void)widget;
-
-    if (!valid_email(email) || !valid_auth_field(password)) {
-        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
-                     "Email and password must contain at least 3 characters "
-                     "and cannot contain whitespace or storage delimiters.");
-        set_status(state, "Registration validation failed");
-        return;
-    }
-
-    at = strchr(email, '@');
-    if (at == email) {
-        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
-                     "Email must include a valid username.");
-        return;
-    }
-    snprintf(username, sizeof(username), "%.*s",
-             (int)(at - email), email);
-    if (!valid_auth_field(username)) {
-        show_message(state, GTK_MESSAGE_ERROR, "Registration validation",
-                     "Username must contain at least 3 characters.");
-        return;
-    }
-
-    for (i = 0; i < state->data->userCount; ++i) {
-        if (strcmp(state->data->users[i].email, email) == 0 ||
-            strcmp(state->data->users[i].name, username) == 0) {
-            show_message(state, GTK_MESSAGE_ERROR,
-                         "Duplicate account",
-                         "That username or email is already registered.");
-            set_status(state, "Duplicate username or email");
-            return;
-        }
-    }
-
-    memset(&user, 0, sizeof(user));
-    user.id = state->data->userCount + 1;
-    snprintf(user.name, sizeof(user.name), "%s", username);
-    snprintf(user.email, sizeof(user.email), "%s", email);
-    snprintf(user.password, sizeof(user.password), "%s", password);
-    user.role = USER_CITIZEN;
-    if (citoyen_register(state->data, &user)) {
-        set_status(state, "Citizen account registered");
-        gtk_entry_set_text(GTK_ENTRY(state->loginPassword), "");
-        show_message(state, GTK_MESSAGE_INFO,
-                     "Registration successful",
-                     "Citizen account registered successfully.");
-    } else {
-        set_status(state, "Registration failed");
-        show_message(state, GTK_MESSAGE_ERROR,
-                     "Registration failed",
-                     "Unable to register the citizen account.");
     }
 }
 
@@ -1276,19 +1448,77 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
     g_free(text);
 }
 
+static GtkWidget *signup_view(UiState *state)
+{
+    GtkWidget *root = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    GtkWidget *card = rounded_card(420);
+    GtkWidget *box = gtk_vbox_new(FALSE, 12);
+    GtkWidget *title = gtk_label_new(NULL);
+    GtkWidget *avatar = gtk_image_new_from_stock(
+        GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_DIALOG);
+    GtkWidget *avatarButton = make_stock_button(
+        "Khtar Taswirtek (Avatar)", GTK_STOCK_OPEN);
+    GtkWidget *createButton = make_stock_button(
+        "Create Account", GTK_STOCK_APPLY);
+    GtkWidget *backLink = gtk_link_button_new_with_label(
+        "", "3andek compte ? Back to Sign In");
+    GtkWidget *banner = make_parky_banner();
+
+    state->signupAvatarPreview = avatar;
+    state->signupAvatarPath[0] = '\0';
+    gtk_container_set_border_width(GTK_CONTAINER(box), 24);
+    gtk_widget_set_size_request(createButton, 372, 40);
+    gtk_label_set_markup(GTK_LABEL(title),
+        "<span size='x-large' weight='bold'>Create your PARKY account</span>");
+    state->signupUsername = gtk_entry_new();
+    state->signupEmail = gtk_entry_new();
+    state->signupPassword = gtk_entry_new();
+    gtk_widget_set_size_request(state->signupUsername, 372, 32);
+    gtk_widget_set_size_request(state->signupEmail, 372, 32);
+    gtk_widget_set_size_request(state->signupPassword, 372, 32);
+    gtk_entry_set_visibility(GTK_ENTRY(state->signupPassword), FALSE);
+    set_entry_placeholder(state->signupUsername, "Username");
+    set_entry_placeholder(state->signupEmail, "Email");
+    set_entry_placeholder(state->signupPassword, "Password");
+    gtk_widget_set_size_request(avatar, 96, 96);
+
+    gtk_box_pack_start(GTK_BOX(box), banner, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), title, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(box), state->signupUsername,
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), state->signupEmail,
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), state->signupPassword,
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(box), avatar, FALSE, FALSE, 8);
+    style_button(avatarButton, "#1F5FBF", "#FFFFFF");
+    gtk_box_pack_start(GTK_BOX(box), avatarButton, FALSE, FALSE, 4);
+    style_button(createButton, "#287A4D", "#FFFFFF");
+    gtk_box_pack_start(GTK_BOX(box), createButton, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(box), backLink, FALSE, FALSE, 4);
+    gtk_container_add(GTK_CONTAINER(card), box);
+    gtk_container_add(GTK_CONTAINER(root), card);
+
+    g_signal_connect(avatarButton, "clicked",
+                     G_CALLBACK(choose_signup_avatar_clicked), state);
+    g_signal_connect(createButton, "clicked",
+                     G_CALLBACK(create_account_clicked), state);
+    g_signal_connect(backLink, "clicked",
+                     G_CALLBACK(back_to_login_clicked), state);
+    return root;
+}
+
 static GtkWidget *login_view(UiState *state)
 {
-    GtkWidget *box = gtk_vbox_new(FALSE, 10);
-    GtkWidget *card = gtk_frame_new("Secure Access");
-    GtkWidget *cardBox = gtk_vbox_new(FALSE, 10);
+    GtkWidget *root = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    GtkWidget *card = rounded_card(400);
+    GtkWidget *cardBox = gtk_vbox_new(FALSE, 12);
     GtkWidget *title = gtk_label_new(NULL);
-    GtkWidget *registerRow;
     GtkWidget *loginBtn = make_stock_button(
         "Sign in", GTK_STOCK_DIALOG_AUTHENTICATION);
-    GtkWidget *registerBtn = make_stock_button(
-        "Register as citizen", GTK_STOCK_ADD);
-    gtk_container_set_border_width(GTK_CONTAINER(box), 16);
-    gtk_container_set_border_width(GTK_CONTAINER(card), 12);
+    GtkWidget *signupLink = gtk_link_button_new_with_label(
+        "", "Ma3andekch compte ? Sign Up");
+    gtk_container_set_border_width(GTK_CONTAINER(cardBox), 24);
     gtk_label_set_markup(GTK_LABEL(title),
         "<span size='x-large' weight='bold'>Welcome to PARKY</span>");
     gtk_misc_set_alignment(GTK_MISC(title), 0.5, 0.5);
@@ -1301,19 +1531,22 @@ static GtkWidget *login_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(cardBox),
                        make_labeled_entry("Password", &state->loginPassword),
                        FALSE, FALSE, 0);
-    registerRow = gtk_hbox_new(TRUE, 8);
-    gtk_box_pack_start(GTK_BOX(registerRow), loginBtn, TRUE, TRUE, 0);
-    gtk_box_pack_start(GTK_BOX(registerRow), registerBtn, TRUE, TRUE, 0);
+    gtk_widget_set_size_request(card, 400, -1);
+    gtk_widget_set_size_request(state->loginEmail, 352, 32);
+    gtk_widget_set_size_request(state->loginPassword, 352, 32);
+    set_entry_placeholder(state->loginEmail, "Username / Email");
+    set_entry_placeholder(state->loginPassword, "Mot de passe");
+    gtk_widget_set_size_request(loginBtn, 352, 40);
     style_button(loginBtn, "#287A4D", "#FFFFFF");
-    style_button(registerBtn, "#1F5FBF", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(cardBox), registerRow, FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(cardBox), loginBtn, FALSE, FALSE, 8);
+    gtk_box_pack_start(GTK_BOX(cardBox), signupLink, FALSE, FALSE, 4);
     gtk_container_add(GTK_CONTAINER(card), cardBox);
-    gtk_box_pack_start(GTK_BOX(box), card, TRUE, TRUE, 40);
+    gtk_container_add(GTK_CONTAINER(root), card);
     gtk_entry_set_visibility(GTK_ENTRY(state->loginPassword), FALSE);
     g_signal_connect(loginBtn, "clicked", G_CALLBACK(login_clicked), state);
-    g_signal_connect(registerBtn, "clicked",
-                     G_CALLBACK(register_clicked), state);
-    return box;
+    g_signal_connect(signupLink, "clicked",
+                     G_CALLBACK(open_signup_clicked), state);
+    return root;
 }
 
 static GtkWidget *admin_view(UiState *state)
@@ -1812,6 +2045,10 @@ int ui_run(ParkyData *data, int argc, char **argv)
                              citizen_view(&state),
                              make_stock_tab("Citizen",
                                             GTK_STOCK_DIALOG_AUTHENTICATION));
+    gtk_notebook_append_page(GTK_NOTEBOOK(state.notebook),
+                             signup_view(&state),
+                             make_stock_tab("Sign Up",
+                                            GTK_STOCK_ADD));
 
     state.status = gtk_statusbar_new();
     {
