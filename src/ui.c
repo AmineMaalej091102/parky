@@ -59,6 +59,7 @@ typedef struct {
     GtkWidget *citizenName;
     GtkWidget *citizenAddress;
     GtkWidget *citizenAvailable;
+    GtkWidget *citizenSearchStatus; /* "N parking(s) matched" label in filter bar */
     GtkWidget *citizenParking;       /* hidden GtkEntry carrying selected parking ID */
     GtkWidget *citizenSelectedLabel; /* "Selected: <name>" label in booking card */
     GtkWidget *citizenSpot;
@@ -1708,32 +1709,88 @@ static void refresh_citizen_review_combo(UiState *state)
     }
 }
 
+/* Applies the current filter-bar values (name, address, only-available) to
+   repopulate the Available Parkings tree.  Called from refresh_citizen_tables
+   and from search_clicked so both paths always honour the active filter.
+   The previously selected parking row is reselected if it still matches. */
+static void refresh_citizen_parkings(UiState *state)
+{
+    GtkListStore *store;
+    GtkTreeIter iter;
+    GtkWidget *tree;
+    GtkTreeSelection *sel;
+    Parking results[PARKY_MAX_PARKINGS];
+    int count, i;
+    int selId = 0;
+    const char *nameFilter;
+    const char *addrFilter;
+    int onlyAvail;
+    char statusMsg[64];
+
+    if (state->citizenParkings == NULL)
+        return;
+
+    /* Read filter values — treat placeholder text as empty string */
+    nameFilter = entry_placeholder_value(state->citizenName);
+    addrFilter = entry_placeholder_value(state->citizenAddress);
+    onlyAvail  = gtk_toggle_button_get_active(
+                     GTK_TOGGLE_BUTTON(state->citizenAvailable));
+
+    /* Remember selected parking ID so we can reselect it after reload */
+    tree = gtk_bin_get_child(GTK_BIN(
+               gtk_bin_get_child(GTK_BIN(state->citizenParkings))));
+    sel  = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
+    {
+        GtkTreeModel *model = gtk_tree_view_get_model(GTK_TREE_VIEW(tree));
+        GtkTreeIter  si;
+        if (gtk_tree_selection_get_selected(sel, &model, &si)) {
+            gchar *txt = NULL;
+            gtk_tree_model_get(model, &si, 0, &txt, -1);
+            if (txt != NULL) { selId = atoi(txt); g_free(txt); }
+        }
+    }
+
+    count = citoyen_filter_parkings(state->data,
+                                    nameFilter, addrFilter,
+                                    onlyAvail,
+                                    results, PARKY_MAX_PARKINGS);
+
+    store = tree_store(state, state->citizenParkings);
+    gtk_list_store_clear(store);
+    for (i = 0; i < count; ++i) {
+        char idBuf[32], availBuf[32];
+        snprintf(idBuf,    sizeof(idBuf),    "%d", results[i].id);
+        snprintf(availBuf, sizeof(availBuf), "%d", results[i].availableSpots);
+        gtk_list_store_append(store, &iter);
+        gtk_list_store_set(store, &iter,
+                           0, idBuf,
+                           1, results[i].name,
+                           2, results[i].address,
+                           3, availBuf,
+                           4, "2.00 TND/hr",
+                           -1);
+        /* Restore selection if this row matches the previously selected ID */
+        if (selId > 0 && results[i].id == selId)
+            gtk_tree_selection_select_iter(sel, &iter);
+    }
+
+    /* Update the inline status label */
+    if (state->citizenSearchStatus != NULL) {
+        snprintf(statusMsg, sizeof(statusMsg),
+                 "%d parking(s) matched", count);
+        gtk_label_set_text(GTK_LABEL(state->citizenSearchStatus),
+                           statusMsg);
+    }
+}
+
 static void refresh_citizen_tables(UiState *state)
 {
     GtkListStore *store;
     GtkTreeIter iter;
-    char value[128];
     int i;
 
-    /* ---- Tab 1: Available Parkings (ID hidden col 0, Name, Address,
-                                        Available, Hourly Rate) ---- */
-    store = tree_store(state, state->citizenParkings);
-    gtk_list_store_clear(store);
-    for (i = 0; i < state->data->parkingCount; ++i) {
-        char available[32];
-        snprintf(value,     sizeof(value),     "%d",
-                 state->data->parkings[i].id);
-        snprintf(available, sizeof(available), "%d",
-                 state->data->parkings[i].availableSpots);
-        gtk_list_store_append(store, &iter);
-        gtk_list_store_set(store, &iter,
-                           0, value,
-                           1, state->data->parkings[i].name,
-                           2, state->data->parkings[i].address,
-                           3, available,
-                           4, "2.00 TND/hr",
-                           -1);
-    }
+    /* ---- Tab 1: Available Parkings (filtered, honours search bar) ---- */
+    refresh_citizen_parkings(state);
 
     /* ---- Tab 2: My Reservations
             (ID hidden col 0, Parking Name, Spot, Date, Time,
@@ -2394,20 +2451,8 @@ static void tariff_changed(GtkWidget *widget, gpointer user_data)
 
 static void search_clicked(GtkWidget *widget, gpointer user_data)
 {
-    UiState *state = (UiState *)user_data;
-    Parking results[PARKY_MAX_PARKINGS];
-    char message[128];
-    int count;
     (void)widget;
-    count = citoyen_filter_parkings(
-        state->data,
-        gtk_entry_get_text(GTK_ENTRY(state->citizenName)),
-        gtk_entry_get_text(GTK_ENTRY(state->citizenAddress)),
-        gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(state->citizenAvailable)),
-        results, PARKY_MAX_PARKINGS);
-    snprintf(message, sizeof(message), "%d parking(s) matched", count);
-    set_status(state, message);
-    refresh_citizen_tables(state);
+    refresh_citizen_parkings((UiState *)user_data);
 }
 
 static void reserve_clicked(GtkWidget *widget, gpointer user_data)
@@ -4306,7 +4351,25 @@ static GtkWidget *citizen_view(UiState *state)
         gtk_box_pack_start(GTK_BOX(filterBar), searchBtn,
                            FALSE, FALSE, 2);
     }
+    {
+        GtkWidget *statusLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(statusLbl),
+            "<span foreground='#475569' size='small'>"
+            "All parkings shown</span>");
+        gtk_misc_set_alignment(GTK_MISC(statusLbl), 0.0, 0.5);
+        state->citizenSearchStatus = statusLbl;
+        gtk_box_pack_start(GTK_BOX(filterBar), statusLbl,
+                           FALSE, FALSE, 4);
+    }
     gtk_box_pack_start(GTK_BOX(findTab), filterBar, FALSE, FALSE, 2);
+
+    /* Live filter: re-run search on every keystroke or toggle */
+    g_signal_connect(state->citizenName,    "changed",
+                     G_CALLBACK(search_clicked), state);
+    g_signal_connect(state->citizenAddress, "changed",
+                     G_CALLBACK(search_clicked), state);
+    g_signal_connect(state->citizenAvailable, "toggled",
+                     G_CALLBACK(search_clicked), state);
 
     /* Left: Available Parkings table (ID hidden col 0) */
     state->citizenParkings =
