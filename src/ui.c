@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "admin.h"
 #include "agent.h"
@@ -61,8 +62,10 @@ typedef struct {
     GtkWidget *citizenParking;       /* hidden GtkEntry carrying selected parking ID */
     GtkWidget *citizenSelectedLabel; /* "Selected: <name>" label in booking card */
     GtkWidget *citizenSpot;
-    GtkWidget *citizenDate;
-    GtkWidget *citizenTime;
+    GtkWidget *citizenDate;          /* GtkLabel showing selected date YYYY-MM-DD */
+    GtkWidget *citizenTime;          /* unused; time read from spin buttons below */
+    GtkWidget *citizenHourSpin;      /* GtkSpinButton 0-23 */
+    GtkWidget *citizenMinuteSpin;    /* GtkSpinButton 0-55 step 5 */
     GtkWidget *citizenService;
     GtkWidget *citizenHours;         /* hidden GtkEntry, always "1", drives tariff */
     GtkWidget *tariff;
@@ -2418,7 +2421,8 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
     int found = 0;
     int full  = 0;
     const char *date;
-    const char *time;
+    char timeBuf[8];
+    int hour, minute;
     (void)widget;
 
     if (parkingId <= 0) {
@@ -2444,18 +2448,21 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
         return;
     }
 
-    date = entry_placeholder_value(state->citizenDate);
-    time = entry_placeholder_value(state->citizenTime);
-    if (date[0] == '\0') {
+    /* Date is stored as "parky-date" on the label widget */
+    date = (const char *)g_object_get_data(G_OBJECT(state->citizenDate),
+                                           "parky-date");
+    if (date == NULL || date[0] == '\0') {
         show_message(state, GTK_MESSAGE_ERROR, "Date required",
-                     "Enter a date in YYYY-MM-DD format.");
+                     "Pick a date using the calendar button.");
         return;
     }
-    if (time[0] == '\0') {
-        show_message(state, GTK_MESSAGE_ERROR, "Time required",
-                     "Enter a time in HH:MM format.");
-        return;
-    }
+
+    /* Time is composed from the two spinbuttons */
+    hour   = gtk_spin_button_get_value_as_int(
+                 GTK_SPIN_BUTTON(state->citizenHourSpin));
+    minute = gtk_spin_button_get_value_as_int(
+                 GTK_SPIN_BUTTON(state->citizenMinuteSpin));
+    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d", hour, minute);
 
     /* Extra service: combo index 0 = none, 1+ = active services in order */
     serviceIdx = gtk_combo_box_get_active(
@@ -2474,7 +2481,7 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
     }
 
     if (citoyen_reserve_spot(state->data, state->activeUserId, parkingId,
-                             date, time, spot)) {
+                             date, timeBuf, spot)) {
         /* Attach a service booking on top if one was selected */
         if (serviceId > 0)
             citoyen_book_service(state->data, state->activeUserId,
@@ -2482,8 +2489,6 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
         show_message(state, GTK_MESSAGE_INFO, "Booking confirmed",
                      "Your parking reservation was submitted.");
         clear_entry_to_placeholder(state->citizenSpot);
-        clear_entry_to_placeholder(state->citizenDate);
-        clear_entry_to_placeholder(state->citizenTime);
         gtk_combo_box_set_active(GTK_COMBO_BOX(state->citizenService), 0);
         update_tariff(state);
     } else {
@@ -4008,6 +4013,63 @@ static void stop_citizen_realtime_timer(UiState *state)
     }
 }
 
+/* Opens a modal calendar dialog and writes the chosen date as YYYY-MM-DD
+   into the date display label (stored under "parky-date" GObject data). */
+static void pick_date_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkWidget *dialog;
+    GtkWidget *cal;
+    GtkWidget *content;
+    guint year = 0, month = 0, day = 0;
+    char dateBuf[16];
+    gint response;
+    (void)widget;
+
+    dialog = gtk_dialog_new_with_buttons(
+        "Pick a Date",
+        GTK_WINDOW(main_window),
+        GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+        GTK_STOCK_OK, GTK_RESPONSE_OK,
+        GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+        NULL);
+    gtk_window_set_position(GTK_WINDOW(dialog),
+                            GTK_WIN_POS_CENTER_ON_PARENT);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+
+    cal = gtk_calendar_new();
+    gtk_calendar_set_display_options(GTK_CALENDAR(cal),
+        GTK_CALENDAR_SHOW_HEADING |
+        GTK_CALENDAR_SHOW_DAY_NAMES);
+
+    content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    gtk_container_set_border_width(GTK_CONTAINER(content), 12);
+    gtk_box_pack_start(GTK_BOX(content), cal, TRUE, TRUE, 0);
+    gtk_widget_show_all(dialog);
+
+    response = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (response == GTK_RESPONSE_OK) {
+        gtk_calendar_get_date(GTK_CALENDAR(cal), &year, &month, &day);
+        snprintf(dateBuf, sizeof(dateBuf),
+                 "%04u-%02u-%02u", year, month + 1, day);
+
+        /* Store the string on the label widget for reserve_clicked to read */
+        g_object_set_data_full(G_OBJECT(state->citizenDate),
+                               "parky-date",
+                               g_strdup(dateBuf), g_free);
+
+        /* Update the visible label text */
+        {
+            char markup[64];
+            snprintf(markup, sizeof(markup),
+                     "<span foreground='#1B2A4A' weight='bold'>%s</span>",
+                     dateBuf);
+            gtk_label_set_markup(GTK_LABEL(state->citizenDate), markup);
+        }
+    }
+    gtk_widget_destroy(dialog);
+}
+
 /* Called when the user clicks a row in the Available Parkings table.
    Sets citizenParking (hidden entry) and updates the booking card label. */
 static void citizen_parking_row_selected(GtkTreeSelection *selection,
@@ -4288,19 +4350,86 @@ static GtkWidget *citizen_view(UiState *state)
                                              &state->citizenSpot),
                        FALSE, FALSE, 2);
 
-    /* Date */
-    gtk_box_pack_start(GTK_BOX(bookCardBox),
-                       admin_panel_entry_row(GTK_STOCK_JUMP_TO,
-                                             "Date (YYYY-MM-DD)",
-                                             &state->citizenDate),
-                       FALSE, FALSE, 2);
+    /* Date — display label + calendar picker button */
+    {
+        GtkWidget *dateRow  = gtk_hbox_new(FALSE, 6);
+        GtkWidget *dateIcon = gtk_image_new_from_stock(
+            GTK_STOCK_INDEX, GTK_ICON_SIZE_BUTTON);
+        GtkWidget *dateLabel = gtk_label_new(NULL);
+        GtkWidget *calBtn;
+        char todayBuf[16];
+        char todayMarkup[64];
+        time_t now = time(NULL);
+        struct tm *lt = localtime(&now);
 
-    /* Time */
-    gtk_box_pack_start(GTK_BOX(bookCardBox),
-                       admin_panel_entry_row(GTK_STOCK_EXECUTE,
-                                             "Time (HH:MM)",
-                                             &state->citizenTime),
-                       FALSE, FALSE, 2);
+        snprintf(todayBuf, sizeof(todayBuf), "%04d-%02d-%02d",
+                 lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday);
+        snprintf(todayMarkup, sizeof(todayMarkup),
+                 "<span foreground='#1B2A4A' weight='bold'>%s</span>",
+                 todayBuf);
+        gtk_label_set_markup(GTK_LABEL(dateLabel), todayMarkup);
+        gtk_misc_set_alignment(GTK_MISC(dateLabel), 0.0, 0.5);
+
+        /* Store today as the initial "parky-date" value */
+        g_object_set_data_full(G_OBJECT(dateLabel), "parky-date",
+                               g_strdup(todayBuf), g_free);
+        state->citizenDate = dateLabel;
+
+        calBtn = gtk_button_new();
+        gtk_container_add(GTK_CONTAINER(calBtn),
+            gtk_image_new_from_stock(GTK_STOCK_INDEX,
+                                     GTK_ICON_SIZE_BUTTON));
+        gtk_widget_set_size_request(calBtn, 32, 32);
+        gtk_widget_set_tooltip_text(calBtn, "Pick Date");
+        g_signal_connect(calBtn, "clicked",
+                         G_CALLBACK(pick_date_clicked), state);
+
+        gtk_box_pack_start(GTK_BOX(dateRow), dateIcon,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(dateRow), dateLabel,
+                           TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(dateRow), calBtn,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(bookCardBox), dateRow,
+                           FALSE, FALSE, 2);
+    }
+
+    /* Time — clock icon + hour spin + ":" + minute spin */
+    {
+        GtkWidget *timeRow   = gtk_hbox_new(FALSE, 4);
+        GtkWidget *timeIcon  = gtk_image_new_from_stock(
+            GTK_STOCK_EXECUTE, GTK_ICON_SIZE_BUTTON);
+        GtkAdjustment *hourAdj = GTK_ADJUSTMENT(
+            gtk_adjustment_new(8.0, 0.0, 23.0, 1.0, 1.0, 0.0));
+        GtkAdjustment *minAdj  = GTK_ADJUSTMENT(
+            gtk_adjustment_new(0.0, 0.0, 55.0, 5.0, 5.0, 0.0));
+        GtkWidget *hourSpin  = gtk_spin_button_new(hourAdj, 1.0, 0);
+        GtkWidget *colonLbl  = gtk_label_new(":");
+        GtkWidget *minSpin   = gtk_spin_button_new(minAdj, 1.0, 0);
+
+        gtk_spin_button_set_wrap(GTK_SPIN_BUTTON(hourSpin), TRUE);
+        gtk_spin_button_set_wrap(GTK_SPIN_BUTTON(minSpin),  TRUE);
+        gtk_entry_set_width_chars(GTK_ENTRY(hourSpin), 3);
+        gtk_entry_set_width_chars(GTK_ENTRY(minSpin),  3);
+        gtk_widget_set_size_request(hourSpin, 52, 32);
+        gtk_widget_set_size_request(minSpin,  52, 32);
+
+        state->citizenHourSpin   = hourSpin;
+        state->citizenMinuteSpin = minSpin;
+        /* citizenTime not used for reading; set NULL for safety */
+        state->citizenTime = NULL;
+
+        gtk_box_pack_start(GTK_BOX(timeRow), timeIcon,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(timeRow), hourSpin,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(timeRow), colonLbl,
+                           FALSE, FALSE, 2);
+        gtk_box_pack_start(GTK_BOX(timeRow), minSpin,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(bookCardBox), timeRow,
+                           FALSE, FALSE, 2);
+    }
 
     /* Extra service combo — populated dynamically on row-select */
     {
