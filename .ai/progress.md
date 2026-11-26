@@ -1,4 +1,4 @@
-- **Active Release:** v1.0.0 (Parking Agent Dashboard Polish)
-- **Completed:** Restored labeled 48px +1 Free Spot / -1 Spot Occupied buttons and clean Report an Issue layout (with Issue Description label) while keeping visible GtkNotebook tab labels in src/ui.c.
-- **Next Task:** Capture a GTK2 visual review of the Agent dashboard at 1180x740.
+- **Active Release:** v1.0.0 (Agent Real-Time Auto-Refresh)
+- **Completed:** Added 2-second GLib timer (g_timeout_add/g_source_remove) reloading data/*.txt for Agent spot counters and reservations while preserving selection, with immediate sync on Approve/Reject/+1/-1 in src/ui.c.
+- **Next Task:** Verify real-time updates in the running GTK2 Agent dashboard at 1180x740.
 - **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) passes cleanly with zero warnings.

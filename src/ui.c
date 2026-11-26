@@ -81,6 +81,7 @@ typedef struct {
     GtkWidget *agentSpotMinusBtn;
     GtkWidget *agentComplaintSubject;
     GtkWidget *agentComplaintText;
+    guint agentRefreshTimerId;
     GtkWidget *root;
     GtkWidget *profileImage;
 } UiState;
@@ -90,6 +91,8 @@ static GtkWidget *main_window = NULL;
 static void set_status(UiState *state, const char *message);
 static void set_page(UiState *state, int page);
 static void refresh_dashboard_identity(UiState *state);
+static void start_agent_realtime_timer(UiState *state);
+static void stop_agent_realtime_timer(UiState *state);
 static GdkPixbuf *make_parky_logo(void);
 static void set_entry_placeholder(GtkWidget *entry, const char *text);
 
@@ -169,6 +172,7 @@ static int valid_email(const char *email)
 
 static void sign_out(UiState *state)
 {
+    stop_agent_realtime_timer(state);
     state->activeUserId = 0;
     refresh_dashboard_identity(state);
     gtk_entry_set_text(GTK_ENTRY(state->loginEmail), "");
@@ -1369,17 +1373,24 @@ static void refresh_agent_hero(UiState *state)
     }
 }
 
-static void refresh_agent_tables(UiState *state)
+static void refresh_agent_reservations_and_hero(UiState *state)
 {
     GtkListStore *store;
+    GtkWidget *tree;
+    GtkTreeSelection *selection;
     GtkTreeIter iter;
     Parking *parking = find_agent_parking(state);
     int assignedParkingId = parking != NULL ? parking->id : 0;
+    int selectedId;
     char idText[32];
     int i;
 
     refresh_agent_hero(state);
 
+    selectedId = tree_selected_first_id(state, state->agentReservations);
+    tree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(state->agentReservations))));
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
     store = tree_store(state, state->agentReservations);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->reservationCount; ++i) {
@@ -1453,7 +1464,19 @@ static void refresh_agent_tables(UiState *state)
                            5, totalText,
                            6, statusMarkup,
                            -1);
+        if (selectedId > 0 && res->id == selectedId)
+            gtk_tree_selection_select_iter(selection, &iter);
     }
+}
+
+static void refresh_agent_tables(UiState *state)
+{
+    GtkListStore *store;
+    GtkTreeIter iter;
+    char idText[32];
+    int i;
+
+    refresh_agent_reservations_and_hero(state);
 
     store = tree_store(state, state->agentServices);
     gtk_list_store_clear(store);
@@ -1482,6 +1505,51 @@ static void refresh_agent_tables(UiState *state)
                            3, priceText,
                            4, statusMarkup,
                            -1);
+    }
+}
+
+static gboolean on_agent_realtime_tick(gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int i;
+    int isAgent = 0;
+
+    if (state == NULL || state->activeUserId <= 0 || state->notebook == NULL) {
+        if (state != NULL)
+            state->agentRefreshTimerId = 0;
+        return FALSE;
+    }
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (state->data->users[i].id == state->activeUserId) {
+            isAgent = (state->data->users[i].role == USER_AGENT);
+            break;
+        }
+    }
+    if (!isAgent) {
+        state->agentRefreshTimerId = 0;
+        return FALSE;
+    }
+    if (gtk_notebook_get_current_page(GTK_NOTEBOOK(state->notebook)) == 2 &&
+        storage_load(state->data)) {
+        refresh_agent_reservations_and_hero(state);
+    }
+    return TRUE;
+}
+
+static void start_agent_realtime_timer(UiState *state)
+{
+    stop_agent_realtime_timer(state);
+    if (state != NULL) {
+        state->agentRefreshTimerId =
+            g_timeout_add(2000, on_agent_realtime_tick, state);
+    }
+}
+
+static void stop_agent_realtime_timer(UiState *state)
+{
+    if (state != NULL && state->agentRefreshTimerId != 0) {
+        g_source_remove(state->agentRefreshTimerId);
+        state->agentRefreshTimerId = 0;
     }
 }
 
@@ -1637,6 +1705,7 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
             } else if (user->role == USER_AGENT) {
                 refresh_agent_tables(state);
                 set_page(state, 2);
+                start_agent_realtime_timer(state);
             } else {
                 refresh_citizen_tables(state);
                 set_page(state, 3);
@@ -1724,61 +1793,52 @@ static void delete_parking_clicked(GtkWidget *widget, gpointer user_data)
     }
 }
 
-static void mark_available_clicked(GtkWidget *widget, gpointer user_data)
+static void adjust_agent_spot(UiState *state, int delta)
 {
-    UiState *state = (UiState *)user_data;
-    Parking *parking = find_agent_parking(state);
-    (void)widget;
+    Parking *parking;
 
+    storage_load(state->data);
+    parking = find_agent_parking(state);
     if (parking == NULL) {
         show_dialog(NULL, GTK_MESSAGE_WARNING, "No Assigned Parking",
                     "No parking is currently assigned to your account.");
         set_status(state, "Assigned parking not found");
         return;
     }
-    if (parking->availableSpots >= parking->totalSpots) {
+    if (delta > 0 && parking->availableSpots >= parking->totalSpots) {
         show_dialog(NULL, GTK_MESSAGE_INFO, "Parking Already Empty",
                     "All spots in this parking are already free.");
         set_status(state, "All spots are already free");
         return;
     }
-    ++parking->availableSpots;
-    parking->status = PARKING_AVAILABLE;
-    if (storage_save(state->data)) {
-        refresh_agent_tables(state);
-        refresh_citizen_tables(state);
-        refresh_admin_tables(state);
-        set_status(state, "Added 1 free spot");
-    }
-}
-
-static void mark_occupied_clicked(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    Parking *parking = find_agent_parking(state);
-    (void)widget;
-
-    if (parking == NULL) {
-        show_dialog(NULL, GTK_MESSAGE_WARNING, "No Assigned Parking",
-                    "No parking is currently assigned to your account.");
-        set_status(state, "Assigned parking not found");
-        return;
-    }
-    if (parking->availableSpots <= 0) {
+    if (delta < 0 && parking->availableSpots <= 0) {
         show_dialog(NULL, GTK_MESSAGE_WARNING, "Parking Full",
                     "All spots in this parking are currently occupied.");
         set_status(state, "Parking is already full");
         return;
     }
-    --parking->availableSpots;
+    parking->availableSpots += delta;
     parking->status = parking->availableSpots > 0 ?
                       PARKING_AVAILABLE : PARKING_OCCUPIED;
     if (storage_save(state->data)) {
-        refresh_agent_tables(state);
+        refresh_agent_reservations_and_hero(state);
         refresh_citizen_tables(state);
         refresh_admin_tables(state);
-        set_status(state, "Marked 1 spot occupied");
+        set_status(state, delta > 0 ? "Added 1 free spot" :
+                   "Marked 1 spot occupied");
     }
+}
+
+static void mark_available_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    adjust_agent_spot((UiState *)user_data, 1);
+}
+
+static void mark_occupied_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    adjust_agent_spot((UiState *)user_data, -1);
 }
 
 static void agent_service_row_selected(GtkTreeSelection *selection,
@@ -1999,49 +2059,56 @@ static void send_agent_complaint_clicked(GtkWidget *widget,
     g_free(text);
 }
 
-static void approve_reservation_clicked(GtkWidget *widget, gpointer user_data)
+static void resolve_agent_reservation_action(UiState *state, int approved)
 {
-    UiState *state = (UiState *)user_data;
     int reservationId =
         tree_selected_first_id(state, state->agentReservations);
-    (void)widget;
-    if (reservationId <= 0) {
-        show_dialog(NULL, GTK_MESSAGE_WARNING, "No Reservation Selected",
-                    "Select a reservation in the table before approving it.");
-        set_status(state, "No reservation selected");
-        return;
-    }
-    if (agent_resolve_reservation(state->data, reservationId, 1)) {
-        show_dialog(NULL, GTK_MESSAGE_INFO, "Reservation Approved",
-                    "The selected reservation has been approved.");
-        set_status(state, "Selected reservation approved");
-    } else {
-        show_dialog(NULL, GTK_MESSAGE_ERROR, "Approval Failed",
-                    "Could not approve the selected reservation.");
-    }
-    refresh_agent_tables(state);
-}
 
-static void reject_reservation_clicked(GtkWidget *widget, gpointer user_data)
-{
-    UiState *state = (UiState *)user_data;
-    int reservationId =
-        tree_selected_first_id(state, state->agentReservations);
-    (void)widget;
     if (reservationId <= 0) {
         show_dialog(NULL, GTK_MESSAGE_WARNING, "No Reservation Selected",
+                    approved ?
+                    "Select a reservation in the table before approving it." :
                     "Select a reservation in the table before rejecting it.");
         set_status(state, "No reservation selected");
         return;
     }
-    if (confirm_destructive_action(state, "Reject the selected reservation?",
-                                   "The citizen will see the status as Rejected.") &&
-        agent_resolve_reservation(state->data, reservationId, 0)) {
-        show_dialog(NULL, GTK_MESSAGE_INFO, "Reservation Rejected",
-                    "The selected reservation has been rejected.");
-        set_status(state, "Selected reservation rejected");
+    if (!approved &&
+        !confirm_destructive_action(state, "Reject the selected reservation?",
+                                    "The citizen will see the status as Rejected.")) {
+        return;
     }
-    refresh_agent_tables(state);
+    storage_load(state->data);
+    if (agent_resolve_reservation(state->data, reservationId, approved)) {
+        show_dialog(NULL, GTK_MESSAGE_INFO,
+                    approved ? "Reservation Approved" : "Reservation Rejected",
+                    approved ?
+                    "The selected reservation has been approved." :
+                    "The selected reservation has been rejected.");
+        set_status(state, approved ?
+                   "Selected reservation approved" :
+                   "Selected reservation rejected");
+    } else {
+        show_dialog(NULL, GTK_MESSAGE_ERROR,
+                    approved ? "Approval Failed" : "Rejection Failed",
+                    approved ?
+                    "Could not approve the selected reservation." :
+                    "Could not reject the selected reservation.");
+    }
+    refresh_agent_reservations_and_hero(state);
+    refresh_citizen_tables(state);
+    refresh_admin_tables(state);
+}
+
+static void approve_reservation_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    resolve_agent_reservation_action((UiState *)user_data, 1);
+}
+
+static void reject_reservation_clicked(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    resolve_agent_reservation_action((UiState *)user_data, 0);
 }
 
 static void update_tariff(UiState *state)
@@ -3575,6 +3642,13 @@ static GtkWidget *citizen_view(UiState *state)
     return box;
 }
 
+static void on_window_destroy(GtkWidget *widget, gpointer user_data)
+{
+    (void)widget;
+    stop_agent_realtime_timer((UiState *)user_data);
+    gtk_main_quit();
+}
+
 int ui_run(ParkyData *data, int argc, char **argv)
 {
     UiState state;
@@ -3589,7 +3663,7 @@ int ui_run(ParkyData *data, int argc, char **argv)
     gtk_window_set_default_size(GTK_WINDOW(window), 1180, 740);
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     gtk_container_set_border_width(GTK_CONTAINER(window), 8);
-    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroy), &state);
 
     state.notebook = gtk_notebook_new();
     gtk_notebook_set_show_tabs(GTK_NOTEBOOK(state.notebook), FALSE);
