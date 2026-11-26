@@ -1029,26 +1029,35 @@ static void refresh_admin_tables(UiState *state)
 
     {
         char markup[128];
+        int totalSpots = 0;
+        int occupiedSpots = 0;
+        double globalRate;
+
         snprintf(markup, sizeof(markup),
-                 "<span size='xx-large' weight='bold'>%d</span>",
+                 "<span foreground='white' size='xx-large'"
+                 " weight='bold'>%d</span>",
                  state->data->userCount);
         gtk_label_set_markup(GTK_LABEL(state->adminTotalUsers), markup);
+
         snprintf(markup, sizeof(markup),
-                 "<span size='xx-large' weight='bold'>%d</span>",
+                 "<span foreground='white' size='xx-large'"
+                 " weight='bold'>%d</span>",
                  state->data->parkingCount);
         gtk_label_set_markup(GTK_LABEL(state->adminTotalParkings), markup);
+
         snprintf(markup, sizeof(markup),
-                 "<span size='xx-large' weight='bold'>%d</span>",
+                 "<span foreground='white' size='xx-large'"
+                 " weight='bold'>%d</span>",
                  agentCount);
         gtk_label_set_markup(GTK_LABEL(state->adminParkingAgents), markup);
+
         snprintf(markup, sizeof(markup),
-                 "<span size='xx-large' weight='bold'>%d</span>",
+                 "<span foreground='white' size='xx-large'"
+                 " weight='bold'>%d</span>",
                  pending);
         gtk_label_set_markup(GTK_LABEL(state->adminPendingComplaints), markup);
+
         if (state->adminGlobalOccupancy != NULL) {
-            int totalSpots = 0;
-            int occupiedSpots = 0;
-            double globalRate;
             for (i = 0; i < state->data->parkingCount; ++i) {
                 totalSpots += state->data->parkings[i].totalSpots;
                 occupiedSpots += state->data->parkings[i].totalSpots -
@@ -1058,7 +1067,8 @@ static void refresh_admin_tables(UiState *state)
                          ((double)occupiedSpots / (double)totalSpots) * 100.0 :
                          0.0;
             snprintf(markup, sizeof(markup),
-                     "<span size='xx-large' weight='bold'>%.1f%%</span>",
+                     "<span foreground='white' size='xx-large'"
+                     " weight='bold'>%.1f%%</span>",
                      globalRate);
             gtk_label_set_markup(GTK_LABEL(state->adminGlobalOccupancy),
                                  markup);
@@ -2755,170 +2765,343 @@ static void delete_complaint_clicked(GtkWidget *widget, gpointer user_data)
     }
 }
 
+static GtkWidget *make_kpi_pill(const char *caption, GtkWidget **valueLabel,
+                                const char *pillColorHex,
+                                const char *valueColorHex)
+{
+    GtkWidget *event = gtk_event_box_new();
+    GtkWidget *vbox  = gtk_vbox_new(FALSE, 3);
+    GtkWidget *val   = gtk_label_new(NULL);
+    GtkWidget *cap   = gtk_label_new(NULL);
+    GdkColor pillBg;
+    char capMarkup[160];
+
+    gdk_color_parse(pillColorHex, &pillBg);
+    gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &pillBg);
+    gtk_container_set_border_width(GTK_CONTAINER(vbox), 10);
+
+    snprintf(capMarkup, sizeof(capMarkup),
+             "<span foreground='white' size='small' weight='bold'>%s</span>",
+             caption);
+    gtk_label_set_markup(GTK_LABEL(cap), capMarkup);
+    gtk_misc_set_alignment(GTK_MISC(cap), 0.5, 0.5);
+
+    (void)valueColorHex; /* value markup set dynamically in refresh */
+    gtk_misc_set_alignment(GTK_MISC(val), 0.5, 0.5);
+
+    gtk_box_pack_start(GTK_BOX(vbox), val, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), cap, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(event), vbox);
+
+    *valueLabel = val;
+    return event;
+}
+
+static GtkWidget *make_admin_panel_card(GtkWidget *child, int width)
+{
+    GtkWidget *frame = gtk_frame_new(NULL);
+    GtkWidget *event = gtk_event_box_new();
+    GdkColor white;
+
+    gdk_color_parse("#FFFFFF", &white);
+    gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_ETCHED_IN);
+    gtk_widget_set_size_request(frame, width, -1);
+    gtk_widget_modify_bg(event, GTK_STATE_NORMAL, &white);
+    gtk_container_add(GTK_CONTAINER(event), child);
+    gtk_container_add(GTK_CONTAINER(frame), event);
+    return frame;
+}
+
+static GtkWidget *admin_panel_entry_row(const char *iconStock,
+                                        const char *placeholder,
+                                        GtkWidget **entry)
+{
+    GtkWidget *box  = gtk_hbox_new(FALSE, 8);
+    GtkWidget *icon = gtk_image_new_from_stock(iconStock, GTK_ICON_SIZE_BUTTON);
+    GtkWidget *text = gtk_entry_new();
+    GdkColor white;
+
+    gdk_color_parse("#FFFFFF", &white);
+    gtk_widget_set_size_request(icon, 20, 20);
+    gtk_widget_set_size_request(text, -1, 34);
+    gtk_widget_modify_base(text, GTK_STATE_NORMAL, &white);
+    gtk_entry_set_alignment(GTK_ENTRY(text), 0.0);
+    set_entry_placeholder(text, placeholder);
+    gtk_box_pack_start(GTK_BOX(box), icon, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), text, TRUE, TRUE, 0);
+    *entry = text;
+    return box;
+}
+
+static GtkWidget *make_admin_action_button(const char *labelText,
+                                           const char *stock,
+                                           const char *bgHex,
+                                           const char *prelightHex,
+                                           const char *fgHex)
+{
+    GtkWidget *button  = gtk_button_new();
+    GtkWidget *align   = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    GtkWidget *content = gtk_hbox_new(FALSE, 6);
+    GtkWidget *icon    = gtk_image_new_from_stock(stock, GTK_ICON_SIZE_BUTTON);
+    GtkWidget *label   = gtk_label_new(NULL);
+    gchar *escaped     = g_markup_escape_text(labelText, -1);
+    char markup[160];
+
+    snprintf(markup, sizeof(markup),
+             "<span weight='bold'>%s</span>", escaped);
+    g_free(escaped);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    gtk_box_pack_start(GTK_BOX(content), icon,  FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(content), label, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(align),  content);
+    gtk_container_add(GTK_CONTAINER(button), align);
+    gtk_widget_set_size_request(button, -1, 36);
+    style_action_button(button, bgHex, prelightHex, fgHex);
+    return button;
+}
+
 static GtkWidget *admin_view(UiState *state)
 {
-    GtkWidget *root = gtk_vbox_new(FALSE, 8);
+    /* ---- outer shell ---- */
+    GtkWidget *root = gtk_vbox_new(FALSE, 0);
+    GtkWidget *heroBar;                     /* KPI hero bar */
+    GtkWidget *heroBarInner;
     GtkWidget *tabs = gtk_notebook_new();
+    GtkWidget *tabLabel;
+
+    /* ---- KPI pill widgets ---- */
+    GtkWidget *kpiRow;
+
+    /* ---- Overview tab ---- */
     GtkWidget *overview = gtk_vbox_new(FALSE, 8);
-    GtkWidget *kpis = gtk_hbox_new(TRUE, 8);
-    GtkWidget *refresh = make_icon_button(GTK_STOCK_REFRESH,
-                                          "Refresh Stats");
+    GtkWidget *overviewInner;
+    GtkWidget *overviewEvent;
+    GtkWidget *refreshBtn;
     GtkWidget *occupancyHeader = gtk_hbox_new(FALSE, 8);
-    GtkWidget *occupancyTitle = gtk_label_new(NULL);
+    GtkWidget *occupancyTitle  = gtk_label_new(NULL);
     GtkListStore *occupancyStore;
-    const char *occupancyTitles[] = {
-        "Parking", "Capacity", "Occupied", "Revenue", "Agent"
-    };
     GtkWidget *occupancyCard;
-    GtkWidget *usersTab = gtk_hpaned_new();
-    GtkWidget *agentsTab = gtk_hpaned_new();
-    GtkWidget *usersPanel = gtk_vbox_new(FALSE, 8);
-    GtkWidget *agentsPanel = gtk_vbox_new(FALSE, 8);
-    GtkWidget *parkingsTab = gtk_hpaned_new();
-    GtkWidget *parkingPanel = gtk_vbox_new(FALSE, 8);
-    GtkWidget *complaintsTab = gtk_hpaned_new();
-    GtkWidget *complaintPanel = gtk_vbox_new(FALSE, 8);
+    const char *occupancyTitles[] = {
+        "Parking", "Capacity", "Occupied", "Revenue (TND)", "Agent"
+    };
+
+    /* ---- per-tab panes ---- */
+    GtkWidget *usersTab      = gtk_hbox_new(FALSE, 8);
+    GtkWidget *agentsTab     = gtk_hbox_new(FALSE, 8);
+    GtkWidget *parkingsTab   = gtk_hbox_new(FALSE, 8);
+    GtkWidget *complaintsTab = gtk_hbox_new(FALSE, 8);
+
+    GtkWidget *usersPanelBox, *agentsPanelBox, *parkingPanelBox,
+              *complaintPanelBox;
+    GtkWidget *usersPanelCard, *agentsPanelCard, *parkingPanelCard,
+              *complaintPanelCard;
+
     GtkListStore *store;
     GtkWidget *tree;
     GtkTreeSelection *selection;
+
+    /* Shared parking combo for Agents tab */
     GtkWidget *parkingCombo = gtk_combo_box_new_text();
+
+    /* Action buttons */
     GtkWidget *addUser, *editUser, *deleteUser;
     GtkWidget *addAgent, *editAgent, *deleteAgent, *assignAgent;
     GtkWidget *addParking, *updateParking, *deleteParking;
     GtkWidget *resolveComplaint, *deleteComplaint;
-    GtkWidget *userActions, *userActionsAlign;
-    GtkWidget *agentActions, *agentActionsAlign;
-    GtkWidget *parkingActions, *parkingActionsAlign;
-    GtkWidget *complaintActions, *complaintActionsAlign;
+    GtkWidget *actionsRow, *actionsAlign;
     GtkWidget *detailScroller;
-    const char *userTitles[] = {"ID", "Username", "Email"};
-    const char *agentTitles[] = {
-        "ID", "Username", "Email", "Assigned Parking"
-    };
-    const char *parkingTitles[] = {
-        "ID", "Name", "Address/Zone", "Total Spots",
-        "Available", "Price/Hr", "Agent"
-    };
+
+    const char *userTitles[]    = {"ID", "Username", "Email"};
+    const char *agentTitles[]   = {"ID", "Username", "Email",
+                                   "Assigned Parking"};
+    const char *parkingTitles[] = {"ID", "Name", "Address/Zone",
+                                   "Total Spots", "Available",
+                                   "Price/Hr", "Agent"};
     const char *complaintTitles[] = {"ID", "From", "Subject", "Status"};
+
     int i;
+    GdkColor navy, white, slate;
+    gdk_color_parse("#1B2A4A", &navy);
+    gdk_color_parse("#FFFFFF", &white);
+    gdk_color_parse("#C5D3E6", &slate);
 
-    gtk_container_set_border_width(GTK_CONTAINER(root), 8);
-    gtk_box_pack_start(GTK_BOX(root), make_dashboard_header(state, "ADMIN"),
+    gtk_container_set_border_width(GTK_CONTAINER(root), 0);
+
+    /* ================================================================
+       1. DASHBOARD HEADER  (#1B2A4A)
+       ================================================================ */
+    gtk_box_pack_start(GTK_BOX(root),
+                       make_dashboard_header(state, "ADMIN"),
                        FALSE, FALSE, 0);
-    gtk_notebook_set_scrollable(GTK_NOTEBOOK(tabs), TRUE);
 
-    state->adminTotalUsers = gtk_label_new(NULL);
-    state->adminTotalParkings = gtk_label_new(NULL);
-    state->adminParkingAgents = gtk_label_new(NULL);
-    state->adminPendingComplaints = gtk_label_new(NULL);
-    state->adminGlobalOccupancy = gtk_label_new(NULL);
+    /* ================================================================
+       2. SYSTEM OVERVIEW HERO BAR — KPI pills on slate background
+       ================================================================ */
+    state->adminTotalUsers         = gtk_label_new(NULL);
+    state->adminTotalParkings      = gtk_label_new(NULL);
+    state->adminParkingAgents      = gtk_label_new(NULL);
+    state->adminPendingComplaints  = gtk_label_new(NULL);
+    state->adminGlobalOccupancy    = gtk_label_new(NULL);
+
+    kpiRow = gtk_hbox_new(TRUE, 6);
     {
-        GtkWidget *cards[5];
-        const char *titles[5] = {
+        /* pill colours: Total Users=blue, Parkings=indigo,
+           Agents=teal, Complaints=amber-red, Occupancy=emerald */
+        const char *pillColors[5] = {
+            "#1F5FBF", "#4B3FA0", "#1A6B5C",
+            "#B33A3A", "#287A4D"
+        };
+        const char *pillCaptions[5] = {
             "Total Users", "Total Parkings", "Parking Agents",
             "Pending Complaints", "Occupancy Rate"
         };
-        GtkWidget *values[5];
-        values[0] = state->adminTotalUsers;
-        values[1] = state->adminTotalParkings;
-        values[2] = state->adminParkingAgents;
-        values[3] = state->adminPendingComplaints;
-        values[4] = state->adminGlobalOccupancy;
-        for (i = 0; i < 5; ++i) {
-            GtkWidget *card = gtk_event_box_new();
-            GtkWidget *cardBox = gtk_vbox_new(FALSE, 4);
-            gtk_container_set_border_width(GTK_CONTAINER(card), 10);
-            gtk_box_pack_start(GTK_BOX(cardBox),
-                               gtk_label_new(titles[i]), FALSE, FALSE, 0);
-            gtk_box_pack_start(GTK_BOX(cardBox), values[i], FALSE, FALSE, 0);
-            gtk_container_add(GTK_CONTAINER(card), cardBox);
-            cards[i] = card;
-        }
+        GtkWidget *pillWidgets[5];
+        pillWidgets[0] = make_kpi_pill(pillCaptions[0],
+                             &state->adminTotalUsers,
+                             pillColors[0], "#FFFFFF");
+        pillWidgets[1] = make_kpi_pill(pillCaptions[1],
+                             &state->adminTotalParkings,
+                             pillColors[1], "#FFFFFF");
+        pillWidgets[2] = make_kpi_pill(pillCaptions[2],
+                             &state->adminParkingAgents,
+                             pillColors[2], "#FFFFFF");
+        pillWidgets[3] = make_kpi_pill(pillCaptions[3],
+                             &state->adminPendingComplaints,
+                             pillColors[3], "#FFFFFF");
+        pillWidgets[4] = make_kpi_pill(pillCaptions[4],
+                             &state->adminGlobalOccupancy,
+                             pillColors[4], "#FFFFFF");
         for (i = 0; i < 5; ++i)
-            gtk_box_pack_start(GTK_BOX(kpis), cards[i], TRUE, TRUE, 0);
+            gtk_box_pack_start(GTK_BOX(kpiRow), pillWidgets[i],
+                               TRUE, TRUE, 0);
     }
 
-    style_button(refresh, "#1F5FBF", "#FFFFFF");
-    gtk_box_pack_start(GTK_BOX(overview), kpis, FALSE, FALSE, 4);
+    heroBarInner = gtk_vbox_new(FALSE, 0);
+    gtk_container_set_border_width(GTK_CONTAINER(heroBarInner), 8);
+    gtk_box_pack_start(GTK_BOX(heroBarInner), kpiRow, FALSE, FALSE, 0);
+
+    heroBar = gtk_event_box_new();
+    gtk_widget_modify_bg(heroBar, GTK_STATE_NORMAL, &slate);
+    gtk_container_add(GTK_CONTAINER(heroBar), heroBarInner);
+    gtk_box_pack_start(GTK_BOX(root), heroBar, FALSE, FALSE, 0);
+
+    /* ================================================================
+       3. NOTEBOOK with icon+text tabs (gtk_widget_show_all on labels)
+       ================================================================ */
+    gtk_notebook_set_scrollable(GTK_NOTEBOOK(tabs), TRUE);
+    gtk_container_set_border_width(GTK_CONTAINER(tabs), 4);
+
+    /* -- Overview & Stats tab -- */
+    overviewEvent = gtk_event_box_new();
+    gtk_widget_modify_bg(overviewEvent, GTK_STATE_NORMAL, &slate);
+    overviewInner = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(overviewInner), 10);
+
+    refreshBtn = make_admin_action_button("Refresh", GTK_STOCK_REFRESH,
+                                          "#1F5FBF", "#2B4478", "#FFFFFF");
+    gtk_widget_set_tooltip_text(refreshBtn, "Reload all statistics");
+
     gtk_label_set_markup(GTK_LABEL(occupancyTitle),
-                         "<span size='large' weight='bold'>"
+                         "<span foreground='#1B2A4A' size='large'"
+                         " weight='bold'>"
                          "Parking Occupancy &amp; Revenue Summary"
                          "</span>");
+    gtk_misc_set_alignment(GTK_MISC(occupancyTitle), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(occupancyHeader), occupancyTitle,
                        TRUE, TRUE, 0);
-    gtk_box_pack_end(GTK_BOX(occupancyHeader), refresh, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(overview), occupancyHeader,
-                       FALSE, FALSE, 4);
+    gtk_box_pack_end(GTK_BOX(occupancyHeader), refreshBtn,
+                     FALSE, FALSE, 0);
+
     occupancyCard = make_tree_view("Occupancy Summary", &occupancyStore,
                                    occupancyTitles, 5);
     state->adminOccupancy = occupancyCard;
     gtk_widget_set_size_request(occupancyCard, -1, 220);
-    gtk_box_pack_start(GTK_BOX(overview), occupancyCard, TRUE, TRUE, 4);
-    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), overview,
-                             gtk_label_new("Overview & Stats"));
-    g_signal_connect(refresh, "clicked",
+
+    gtk_box_pack_start(GTK_BOX(overviewInner), occupancyHeader,
+                       FALSE, FALSE, 4);
+    gtk_box_pack_start(GTK_BOX(overviewInner), occupancyCard,
+                       TRUE, TRUE, 4);
+    gtk_container_add(GTK_CONTAINER(overviewEvent), overviewInner);
+    gtk_container_add(GTK_CONTAINER(overview), overviewEvent);
+
+    tabLabel = make_stock_tab("Overview & Stats", GTK_STOCK_HOME);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), overview, tabLabel);
+    g_signal_connect(refreshBtn, "clicked",
                      G_CALLBACK(admin_refresh_clicked), state);
 
-    state->adminUsers = make_tree_view("Citizens", &store,
-                                       userTitles, 3);
-    gtk_widget_set_size_request(state->adminUsers, 600, 420);
-    gtk_paned_pack1(GTK_PANED(usersTab), state->adminUsers, TRUE, FALSE);
-    gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo), "Unassigned");
-    for (i = 0; i < state->data->parkingCount; ++i)
-        gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo),
-                                  state->data->parkings[i].name);
-    gtk_combo_box_set_active(GTK_COMBO_BOX(parkingCombo), 0);
-    usersPanel = gtk_vbox_new(FALSE, 6);
-    gtk_container_set_border_width(GTK_CONTAINER(usersPanel), 8);
-    gtk_widget_set_size_request(usersPanel, 290, -1);
-    gtk_box_pack_start(GTK_BOX(usersPanel),
-                       gtk_label_new("Citizen Management"), FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(usersPanel),
-                       account_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
-                                         &state->adminCitizenName),
-                       FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminCitizenName, "Username");
-    gtk_box_pack_start(GTK_BOX(usersPanel),
-                       account_entry_row(GTK_STOCK_NETWORK,
-                                         &state->adminCitizenEmail),
-                       FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminCitizenEmail, "Email");
-    gtk_box_pack_start(GTK_BOX(usersPanel),
-                       account_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
-                                         &state->adminCitizenPassword),
-                       FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminCitizenPassword, "Password");
+    /* ================================================================
+       4a. USERS TAB (Citizens only)
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(usersTab), 8);
 
-    addUser = make_icon_button(GTK_STOCK_ADD, "Add citizen");
-    editUser = make_icon_button(GTK_STOCK_EDIT, "Edit selected citizen");
-    deleteUser = make_icon_button(GTK_STOCK_DELETE, "Delete selected citizen");
-    style_button(addUser, "#287A4D", "#FFFFFF");
-    style_button(editUser, "#1F5FBF", "#FFFFFF");
-    style_button(deleteUser, "#B33A3A", "#FFFFFF");
-    gtk_widget_set_size_request(addUser, 48, 36);
-    gtk_widget_set_size_request(editUser, 48, 36);
-    gtk_widget_set_size_request(deleteUser, 48, 36);
-    userActions = gtk_hbox_new(FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(userActions), addUser, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(userActions), editUser, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(userActions), deleteUser, FALSE, FALSE, 0);
-    userActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_container_add(GTK_CONTAINER(userActionsAlign), userActions);
-    gtk_box_pack_start(GTK_BOX(usersPanel), userActionsAlign,
+    state->adminUsers = make_tree_view("Citizens", &store, userTitles, 3);
+    gtk_widget_set_size_request(state->adminUsers, -1, 400);
+    gtk_box_pack_start(GTK_BOX(usersTab), state->adminUsers,
+                       TRUE, TRUE, 0);
+
+    /* right-hand management panel */
+    usersPanelBox = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(usersPanelBox), 12);
+    {
+        GtkWidget *panelTitle = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(panelTitle),
+            "<span foreground='#1B2A4A' size='large' weight='bold'>"
+            "Citizen Management</span>");
+        gtk_misc_set_alignment(GTK_MISC(panelTitle), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(usersPanelBox), panelTitle,
+                           FALSE, FALSE, 2);
+    }
+    gtk_box_pack_start(GTK_BOX(usersPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
+                                             "Username",
+                                             &state->adminCitizenName),
                        FALSE, FALSE, 2);
-    gtk_paned_pack2(GTK_PANED(usersTab), usersPanel, FALSE, FALSE);
-    gtk_paned_set_position(GTK_PANED(usersTab), 760);
-    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), usersTab,
-                             gtk_label_new("Users"));
-    set_admin_action_role(addUser, USER_CITIZEN);
-    set_admin_action_role(editUser, USER_CITIZEN);
+    gtk_box_pack_start(GTK_BOX(usersPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_NETWORK, "Email",
+                                             &state->adminCitizenEmail),
+                       FALSE, FALSE, 2);
+    gtk_box_pack_start(GTK_BOX(usersPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                             "Password",
+                                             &state->adminCitizenPassword),
+                       FALSE, FALSE, 2);
+
+    addUser    = make_admin_action_button("Add",    GTK_STOCK_ADD,
+                                          "#287A4D", "#1A5C38", "#FFFFFF");
+    editUser   = make_admin_action_button("Edit",   GTK_STOCK_EDIT,
+                                          "#1F5FBF", "#174AA0", "#FFFFFF");
+    deleteUser = make_admin_action_button("Delete", GTK_STOCK_DELETE,
+                                          "#B33A3A", "#8B2929", "#FFFFFF");
+    gtk_widget_set_tooltip_text(addUser,    "Add new citizen");
+    gtk_widget_set_tooltip_text(editUser,   "Edit selected citizen");
+    gtk_widget_set_tooltip_text(deleteUser, "Delete selected citizen");
+
+    actionsRow   = gtk_hbox_new(FALSE, 8);
+    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), addUser,    FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), editUser,   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), deleteUser, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+    gtk_box_pack_start(GTK_BOX(usersPanelBox), actionsAlign,
+                       FALSE, FALSE, 6);
+
+    usersPanelCard = make_admin_panel_card(usersPanelBox, 280);
+    gtk_box_pack_start(GTK_BOX(usersTab), usersPanelCard, FALSE, FALSE, 0);
+
+    tabLabel = make_stock_tab("Users", GTK_STOCK_ORIENTATION_PORTRAIT);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), usersTab, tabLabel);
+
+    set_admin_action_role(addUser,    USER_CITIZEN);
+    set_admin_action_role(editUser,   USER_CITIZEN);
     set_admin_action_role(deleteUser, USER_CITIZEN);
-    g_signal_connect(addUser, "clicked",
-                     G_CALLBACK(admin_add_user_clicked), state);
-    g_signal_connect(editUser, "clicked",
+    g_signal_connect(addUser,    "clicked",
+                     G_CALLBACK(admin_add_user_clicked),  state);
+    g_signal_connect(editUser,   "clicked",
                      G_CALLBACK(admin_edit_user_clicked), state);
     g_signal_connect(deleteUser, "clicked",
-                     G_CALLBACK(delete_user_clicked), state);
+                     G_CALLBACK(delete_user_clicked),     state);
     selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(
         gtk_bin_get_child(GTK_BIN(gtk_bin_get_child(GTK_BIN(
             state->adminUsers))))));
@@ -2927,70 +3110,104 @@ static GtkWidget *admin_view(UiState *state)
     g_signal_connect(selection, "changed",
                      G_CALLBACK(admin_user_row_selected), state);
 
+    /* ================================================================
+       4b. AGENTS TAB (with Assigned Parking dropdown)
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(agentsTab), 8);
+
     state->adminAgents = make_tree_view("Parking Agents", &store,
                                         agentTitles, 4);
-    gtk_widget_set_size_request(state->adminAgents, 600, 420);
-    gtk_paned_pack1(GTK_PANED(agentsTab), state->adminAgents, TRUE, FALSE);
-    agentsPanel = gtk_vbox_new(FALSE, 6);
-    gtk_container_set_border_width(GTK_CONTAINER(agentsPanel), 8);
-    gtk_widget_set_size_request(agentsPanel, 290, -1);
-    gtk_box_pack_start(GTK_BOX(agentsPanel),
-                       gtk_label_new("Agent Management"), FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(agentsPanel),
-                       account_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
-                                         &state->adminAgentName),
+    gtk_widget_set_size_request(state->adminAgents, -1, 400);
+    gtk_box_pack_start(GTK_BOX(agentsTab), state->adminAgents,
+                       TRUE, TRUE, 0);
+
+    gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo), "Unassigned");
+    for (i = 0; i < state->data->parkingCount; ++i)
+        gtk_combo_box_append_text(GTK_COMBO_BOX(parkingCombo),
+                                  state->data->parkings[i].name);
+    gtk_combo_box_set_active(GTK_COMBO_BOX(parkingCombo), 0);
+    state->adminAgentParking = parkingCombo;
+
+    agentsPanelBox = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(agentsPanelBox), 12);
+    {
+        GtkWidget *panelTitle = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(panelTitle),
+            "<span foreground='#1B2A4A' size='large' weight='bold'>"
+            "Agent Management</span>");
+        gtk_misc_set_alignment(GTK_MISC(panelTitle), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(agentsPanelBox), panelTitle,
+                           FALSE, FALSE, 2);
+    }
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_ORIENTATION_PORTRAIT,
+                                             "Username",
+                                             &state->adminAgentName),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminAgentName, "Username");
-    gtk_box_pack_start(GTK_BOX(agentsPanel),
-                       account_entry_row(GTK_STOCK_NETWORK,
-                                         &state->adminAgentEmail),
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_NETWORK, "Email",
+                                             &state->adminAgentEmail),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminAgentEmail, "Email");
-    gtk_box_pack_start(GTK_BOX(agentsPanel),
-                       account_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
-                                         &state->adminAgentPassword),
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_DIALOG_AUTHENTICATION,
+                                             "Password",
+                                             &state->adminAgentPassword),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminAgentPassword, "Password");
-    gtk_box_pack_start(GTK_BOX(agentsPanel), parkingCombo,
+    {
+        GtkWidget *assignLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(assignLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Assigned Parking</span>");
+        gtk_misc_set_alignment(GTK_MISC(assignLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(agentsPanelBox), assignLbl,
+                           FALSE, FALSE, 2);
+    }
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox), parkingCombo,
                        FALSE, FALSE, 2);
-    addAgent = make_icon_button(GTK_STOCK_ADD, "Add agent");
-    editAgent = make_icon_button(GTK_STOCK_EDIT, "Edit selected agent");
-    deleteAgent = make_icon_button(GTK_STOCK_DELETE, "Delete selected agent");
-    assignAgent = make_icon_button(GTK_STOCK_APPLY,
-                                   "Assign selected agent to parking");
-    style_button(addAgent, "#287A4D", "#FFFFFF");
-    style_button(editAgent, "#1F5FBF", "#FFFFFF");
-    style_button(deleteAgent, "#B33A3A", "#FFFFFF");
-    style_button(assignAgent, "#F2A900", "#1B2A4A");
-    gtk_widget_set_size_request(addAgent, 48, 36);
-    gtk_widget_set_size_request(editAgent, 48, 36);
-    gtk_widget_set_size_request(deleteAgent, 48, 36);
-    gtk_widget_set_size_request(assignAgent, 48, 36);
-    agentActions = gtk_hbox_new(FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(agentActions), addAgent, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(agentActions), editAgent, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(agentActions), deleteAgent, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(agentActions), assignAgent, FALSE, FALSE, 0);
-    agentActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_container_add(GTK_CONTAINER(agentActionsAlign), agentActions);
-    gtk_box_pack_start(GTK_BOX(agentsPanel), agentActionsAlign,
-                       FALSE, FALSE, 2);
-    gtk_paned_pack2(GTK_PANED(agentsTab), agentsPanel, FALSE, FALSE);
-    gtk_paned_set_position(GTK_PANED(agentsTab), 760);
-    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), agentsTab,
-                             gtk_label_new("Agents"));
-    set_admin_action_role(addAgent, USER_AGENT);
-    set_admin_action_role(editAgent, USER_AGENT);
+
+    addAgent    = make_admin_action_button("Add",    GTK_STOCK_ADD,
+                                           "#287A4D", "#1A5C38", "#FFFFFF");
+    editAgent   = make_admin_action_button("Edit",   GTK_STOCK_EDIT,
+                                           "#1F5FBF", "#174AA0", "#FFFFFF");
+    deleteAgent = make_admin_action_button("Delete", GTK_STOCK_DELETE,
+                                           "#B33A3A", "#8B2929", "#FFFFFF");
+    assignAgent = make_admin_action_button("Assign", GTK_STOCK_APPLY,
+                                           "#F2A900", "#D97706", "#1B2A4A");
+    gtk_widget_set_tooltip_text(addAgent,    "Add new parking agent");
+    gtk_widget_set_tooltip_text(editAgent,   "Edit selected agent");
+    gtk_widget_set_tooltip_text(deleteAgent, "Delete selected agent");
+    gtk_widget_set_tooltip_text(assignAgent,
+                                "Assign selected agent to parking");
+
+    actionsRow   = gtk_hbox_new(FALSE, 8);
+    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), addAgent,    FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), editAgent,   FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), deleteAgent, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), assignAgent, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox), actionsAlign,
+                       FALSE, FALSE, 6);
+
+    agentsPanelCard = make_admin_panel_card(agentsPanelBox, 280);
+    gtk_box_pack_start(GTK_BOX(agentsTab), agentsPanelCard, FALSE, FALSE, 0);
+
+    tabLabel = make_stock_tab("Agents", GTK_STOCK_EXECUTE);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), agentsTab, tabLabel);
+
+    set_admin_action_role(addAgent,    USER_AGENT);
+    set_admin_action_role(editAgent,   USER_AGENT);
     set_admin_action_role(deleteAgent, USER_AGENT);
     set_admin_action_role(assignAgent, USER_AGENT);
-    g_signal_connect(addAgent, "clicked",
-                     G_CALLBACK(admin_add_user_clicked), state);
-    g_signal_connect(editAgent, "clicked",
+    g_signal_connect(addAgent,    "clicked",
+                     G_CALLBACK(admin_add_user_clicked),  state);
+    g_signal_connect(editAgent,   "clicked",
                      G_CALLBACK(admin_edit_user_clicked), state);
     g_signal_connect(deleteAgent, "clicked",
-                     G_CALLBACK(delete_user_clicked), state);
+                     G_CALLBACK(delete_user_clicked),     state);
     g_signal_connect(assignAgent, "clicked",
-                     G_CALLBACK(admin_assign_clicked), state);
+                     G_CALLBACK(admin_assign_clicked),    state);
     selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(
         gtk_bin_get_child(GTK_BIN(gtk_bin_get_child(GTK_BIN(
             state->adminAgents))))));
@@ -2999,132 +3216,164 @@ static GtkWidget *admin_view(UiState *state)
     g_signal_connect(selection, "changed",
                      G_CALLBACK(admin_user_row_selected), state);
 
+    /* ================================================================
+       4c. PARKINGS TAB
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(parkingsTab), 8);
+
     state->adminParkings = make_tree_view("Parkings", &store,
                                           parkingTitles, 7);
-    gtk_widget_set_size_request(state->adminParkings, 700, 420);
-    gtk_paned_pack1(GTK_PANED(parkingsTab), state->adminParkings,
-                    TRUE, FALSE);
-    parkingPanel = gtk_vbox_new(FALSE, 6);
-    gtk_container_set_border_width(GTK_CONTAINER(parkingPanel), 8);
-    gtk_widget_set_size_request(parkingPanel, 320, -1);
-    gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       gtk_label_new("Parking Management"),
-                       FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       account_entry_row(GTK_STOCK_DND,
-                                         &state->adminParkingName),
+    gtk_widget_set_size_request(state->adminParkings, -1, 400);
+    gtk_box_pack_start(GTK_BOX(parkingsTab), state->adminParkings,
+                       TRUE, TRUE, 0);
+
+    parkingPanelBox = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(parkingPanelBox), 12);
+    {
+        GtkWidget *panelTitle = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(panelTitle),
+            "<span foreground='#1B2A4A' size='large' weight='bold'>"
+            "Parking Management</span>");
+        gtk_misc_set_alignment(GTK_MISC(panelTitle), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(parkingPanelBox), panelTitle,
+                           FALSE, FALSE, 2);
+    }
+    gtk_box_pack_start(GTK_BOX(parkingPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_DND, "Name",
+                                             &state->adminParkingName),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminParkingName, "Name");
-    gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       account_entry_row(GTK_STOCK_JUMP_TO,
-                                         &state->adminParkingAddress),
+    gtk_box_pack_start(GTK_BOX(parkingPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_JUMP_TO,
+                                             "Address/Zone",
+                                             &state->adminParkingAddress),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminParkingAddress, "Address/Zone");
-    gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       account_entry_row(GTK_STOCK_ADD,
-                                         &state->adminParkingTotal),
+    gtk_box_pack_start(GTK_BOX(parkingPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_INDEX, "Total Spots",
+                                             &state->adminParkingTotal),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminParkingTotal, "Total Spots");
-    gtk_box_pack_start(GTK_BOX(parkingPanel),
-                       account_entry_row(GTK_STOCK_APPLY,
-                                         &state->adminParkingAvailable),
+    gtk_box_pack_start(GTK_BOX(parkingPanelBox),
+                       admin_panel_entry_row(GTK_STOCK_APPLY, "Available",
+                                             &state->adminParkingAvailable),
                        FALSE, FALSE, 2);
-    set_entry_placeholder(state->adminParkingAvailable, "Available");
-    addParking = make_icon_button(GTK_STOCK_ADD, "Add parking");
-    updateParking = make_icon_button(GTK_STOCK_EDIT,
-                                     "Update selected parking");
-    deleteParking = make_icon_button(GTK_STOCK_DELETE,
-                                     "Delete selected parking");
-    style_button(addParking, "#287A4D", "#FFFFFF");
-    style_button(updateParking, "#1F5FBF", "#FFFFFF");
-    style_button(deleteParking, "#B33A3A", "#FFFFFF");
-    gtk_widget_set_size_request(addParking, 48, 36);
-    gtk_widget_set_size_request(updateParking, 48, 36);
-    gtk_widget_set_size_request(deleteParking, 48, 36);
-    parkingActions = gtk_hbox_new(FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(parkingActions), addParking,
+
+    addParking    = make_admin_action_button("Add",    GTK_STOCK_ADD,
+                                             "#287A4D", "#1A5C38", "#FFFFFF");
+    updateParking = make_admin_action_button("Edit",   GTK_STOCK_EDIT,
+                                             "#1F5FBF", "#174AA0", "#FFFFFF");
+    deleteParking = make_admin_action_button("Delete", GTK_STOCK_DELETE,
+                                             "#B33A3A", "#8B2929", "#FFFFFF");
+    gtk_widget_set_tooltip_text(addParking,    "Add new parking");
+    gtk_widget_set_tooltip_text(updateParking, "Update selected parking");
+    gtk_widget_set_tooltip_text(deleteParking, "Delete selected parking");
+
+    actionsRow   = gtk_hbox_new(FALSE, 8);
+    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), addParking,    FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), updateParking, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), deleteParking, FALSE, FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+    gtk_box_pack_start(GTK_BOX(parkingPanelBox), actionsAlign,
+                       FALSE, FALSE, 6);
+
+    parkingPanelCard = make_admin_panel_card(parkingPanelBox, 280);
+    gtk_box_pack_start(GTK_BOX(parkingsTab), parkingPanelCard,
                        FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(parkingActions), updateParking,
-                       FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(parkingActions), deleteParking,
-                       FALSE, FALSE, 0);
-    parkingActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_container_add(GTK_CONTAINER(parkingActionsAlign), parkingActions);
-    gtk_box_pack_start(GTK_BOX(parkingPanel), parkingActionsAlign,
-                       FALSE, FALSE, 2);
-    gtk_paned_pack2(GTK_PANED(parkingsTab), parkingPanel, FALSE, FALSE);
-    gtk_paned_set_position(GTK_PANED(parkingsTab), 760);
-    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), parkingsTab,
-                             gtk_label_new("Parkings"));
-    g_signal_connect(addParking, "clicked",
-                     G_CALLBACK(admin_add_parking_clicked), state);
+
+    tabLabel = make_stock_tab("Parkings", GTK_STOCK_DIRECTORY);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), parkingsTab, tabLabel);
+
+    g_signal_connect(addParking,    "clicked",
+                     G_CALLBACK(admin_add_parking_clicked),    state);
     g_signal_connect(updateParking, "clicked",
                      G_CALLBACK(admin_update_parking_clicked), state);
     g_signal_connect(deleteParking, "clicked",
-                     G_CALLBACK(delete_parking_clicked), state);
+                     G_CALLBACK(delete_parking_clicked),       state);
     tree = gtk_bin_get_child(GTK_BIN(
-        gtk_bin_get_child(GTK_BIN(state->adminParkings))));
+               gtk_bin_get_child(GTK_BIN(state->adminParkings))));
     selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
     g_signal_connect(selection, "changed",
                      G_CALLBACK(admin_parking_row_selected), state);
 
+    /* ================================================================
+       4d. COMPLAINTS TAB
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(complaintsTab), 8);
+
     state->adminComplaints = make_tree_view("Complaints", &store,
                                             complaintTitles, 4);
-    gtk_widget_set_size_request(state->adminComplaints, 700, 420);
-    gtk_paned_pack1(GTK_PANED(complaintsTab), state->adminComplaints,
-                    TRUE, FALSE);
-    complaintPanel = gtk_vbox_new(FALSE, 8);
-    gtk_container_set_border_width(GTK_CONTAINER(complaintPanel), 8);
-    gtk_box_pack_start(GTK_BOX(complaintPanel),
-                       gtk_label_new("Complaint Details"),
-                       FALSE, FALSE, 4);
+    gtk_widget_set_size_request(state->adminComplaints, -1, 400);
+    gtk_box_pack_start(GTK_BOX(complaintsTab), state->adminComplaints,
+                       TRUE, TRUE, 0);
+
+    complaintPanelBox = gtk_vbox_new(FALSE, 8);
+    gtk_container_set_border_width(GTK_CONTAINER(complaintPanelBox), 12);
+    {
+        GtkWidget *panelTitle = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(panelTitle),
+            "<span foreground='#1B2A4A' size='large' weight='bold'>"
+            "Complaint Details</span>");
+        gtk_misc_set_alignment(GTK_MISC(panelTitle), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(complaintPanelBox), panelTitle,
+                           FALSE, FALSE, 2);
+    }
     detailScroller = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(detailScroller),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
     state->adminComplaintDetail = gtk_text_view_new();
-    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(state->adminComplaintDetail),
-                                GTK_WRAP_WORD);
-    gtk_text_view_set_editable(GTK_TEXT_VIEW(state->adminComplaintDetail),
-                               FALSE);
-    gtk_widget_set_size_request(detailScroller, 280, 260);
+    gtk_text_view_set_wrap_mode(
+        GTK_TEXT_VIEW(state->adminComplaintDetail), GTK_WRAP_WORD);
+    gtk_text_view_set_editable(
+        GTK_TEXT_VIEW(state->adminComplaintDetail), FALSE);
+    gtk_widget_modify_base(state->adminComplaintDetail,
+                           GTK_STATE_NORMAL, &white);
+    gtk_widget_set_size_request(detailScroller, -1, 240);
     gtk_container_add(GTK_CONTAINER(detailScroller),
                       state->adminComplaintDetail);
-    gtk_box_pack_start(GTK_BOX(complaintPanel), detailScroller,
+    gtk_box_pack_start(GTK_BOX(complaintPanelBox), detailScroller,
                        TRUE, TRUE, 4);
-    resolveComplaint = make_icon_button(GTK_STOCK_APPLY,
-                                        "Resolve selected complaint");
-    deleteComplaint = make_icon_button(GTK_STOCK_DELETE,
-                                       "Delete selected complaint");
-    style_button(resolveComplaint, "#287A4D", "#FFFFFF");
-    style_button(deleteComplaint, "#B33A3A", "#FFFFFF");
-    gtk_widget_set_size_request(resolveComplaint, 48, 36);
-    gtk_widget_set_size_request(deleteComplaint, 48, 36);
-    complaintActions = gtk_hbox_new(FALSE, 10);
-    gtk_box_pack_start(GTK_BOX(complaintActions), resolveComplaint,
+
+    resolveComplaint = make_admin_action_button(
+        "Resolve", GTK_STOCK_APPLY, "#287A4D", "#1A5C38", "#FFFFFF");
+    deleteComplaint  = make_admin_action_button(
+        "Delete",  GTK_STOCK_DELETE, "#B33A3A", "#8B2929", "#FFFFFF");
+    gtk_widget_set_tooltip_text(resolveComplaint,
+                                "Resolve selected complaint");
+    gtk_widget_set_tooltip_text(deleteComplaint,
+                                "Delete selected complaint");
+
+    actionsRow   = gtk_hbox_new(FALSE, 8);
+    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+    gtk_box_pack_start(GTK_BOX(actionsRow), resolveComplaint,
                        FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(complaintActions), deleteComplaint,
+    gtk_box_pack_start(GTK_BOX(actionsRow), deleteComplaint,
                        FALSE, FALSE, 0);
-    complaintActionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_container_add(GTK_CONTAINER(complaintActionsAlign),
-                      complaintActions);
-    gtk_box_pack_start(GTK_BOX(complaintPanel), complaintActionsAlign,
-                       FALSE, FALSE, 2);
-    gtk_paned_pack2(GTK_PANED(complaintsTab), complaintPanel,
-                    FALSE, FALSE);
-    gtk_paned_set_position(GTK_PANED(complaintsTab), 760);
-    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), complaintsTab,
-                             gtk_label_new("Complaints"));
+    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+    gtk_box_pack_start(GTK_BOX(complaintPanelBox), actionsAlign,
+                       FALSE, FALSE, 6);
+
+    complaintPanelCard = make_admin_panel_card(complaintPanelBox, 280);
+    gtk_box_pack_start(GTK_BOX(complaintsTab), complaintPanelCard,
+                       FALSE, FALSE, 0);
+
+    tabLabel = make_stock_tab("Complaints", GTK_STOCK_DIALOG_WARNING);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(tabs), complaintsTab, tabLabel);
+
     g_signal_connect(resolveComplaint, "clicked",
                      G_CALLBACK(resolve_complaint_clicked), state);
-    g_signal_connect(deleteComplaint, "clicked",
-                     G_CALLBACK(delete_complaint_clicked), state);
+    g_signal_connect(deleteComplaint,  "clicked",
+                     G_CALLBACK(delete_complaint_clicked),  state);
     tree = gtk_bin_get_child(GTK_BIN(
-        gtk_bin_get_child(GTK_BIN(state->adminComplaints))));
+               gtk_bin_get_child(GTK_BIN(state->adminComplaints))));
     selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
     g_signal_connect(selection, "changed",
                      G_CALLBACK(admin_complaint_row_selected), state);
 
+    /* ================================================================
+       5. Pack notebook and populate tables
+       ================================================================ */
     gtk_box_pack_start(GTK_BOX(root), tabs, TRUE, TRUE, 0);
     refresh_admin_tables(state);
     return root;

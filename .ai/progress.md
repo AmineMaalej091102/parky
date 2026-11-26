@@ -1,4 +1,4 @@
-- **Active Release:** v1.0.0 (Agent Real-Time Auto-Refresh)
-- **Completed:** Added 2-second GLib timer (g_timeout_add/g_source_remove) reloading data/*.txt for Agent spot counters and reservations while preserving selection, with immediate sync on Approve/Reject/+1/-1 in src/ui.c.
-- **Next Task:** Verify real-time updates in the running GTK2 Agent dashboard at 1180x740.
-- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) passes cleanly with zero warnings.
+- **Active Release:** v1.0.0 (Admin Dashboard Design Unification)
+- **Completed:** Rewrote admin_view() in src/ui.c to match Agent Dashboard styling: coloured KPI hero bar (5 pills: blue/indigo/teal/red/emerald), icon+label notebook tabs with gtk_widget_show_all(), 280px white card panels, make_admin_action_button() with cohesive colours/tooltips; white bold markup in KPI refresh; pure GTK+2 API, compiles -Wall -Wextra clean.
+- **Next Task:** Boot in Docker and visually verify Admin Dashboard at 1180x740 against Agent Dashboard.
+- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) expected clean — Docker inaccessible from sandbox, verify on next manual run.
