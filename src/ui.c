@@ -2449,6 +2449,20 @@ static void tariff_changed(GtkWidget *widget, gpointer user_data)
     update_tariff((UiState *)user_data);
 }
 
+static void clear_filters_clicked(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    (void)widget;
+    clear_entry_to_placeholder(state->citizenName);
+    clear_entry_to_placeholder(state->citizenAddress);
+    gtk_toggle_button_set_active(
+        GTK_TOGGLE_BUTTON(state->citizenAvailable), FALSE);
+    /* refresh_citizen_parkings is triggered automatically via the
+       "changed" / "toggled" signals connected to those widgets, but
+       call it explicitly here in case signals are blocked or inactive. */
+    refresh_citizen_parkings(state);
+}
+
 static void search_clicked(GtkWidget *widget, gpointer user_data)
 {
     (void)widget;
@@ -4343,12 +4357,12 @@ static GtkWidget *citizen_view(UiState *state)
     gtk_box_pack_start(GTK_BOX(filterBar), state->citizenAvailable,
                        FALSE, FALSE, 2);
     {
-        GtkWidget *searchBtn = make_admin_action_button(
-            "Search", GTK_STOCK_FIND, "#F2A900", "#D97706", "#1B2A4A");
-        gtk_widget_set_size_request(searchBtn, 100, 34);
-        g_signal_connect(searchBtn, "clicked",
-                         G_CALLBACK(search_clicked), state);
-        gtk_box_pack_start(GTK_BOX(filterBar), searchBtn,
+        GtkWidget *clearBtn = make_icon_button(GTK_STOCK_CLEAR,
+                                               "Clear filters");
+        style_action_button(clearBtn, "#E2E8F0", "#CBD5E1", "#1B2A4A");
+        g_signal_connect(clearBtn, "clicked",
+                         G_CALLBACK(clear_filters_clicked), state);
+        gtk_box_pack_start(GTK_BOX(filterBar), clearBtn,
                            FALSE, FALSE, 2);
     }
     {
