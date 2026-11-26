@@ -57,6 +57,26 @@ static int next_id(const void *items, int count, size_t size)
     return maxId + 1;
 }
 
+/* Returns 1 if the password meets the strong-password policy:
+   at least 8 characters, one uppercase letter, one lowercase letter,
+   and one digit — while already passing valid_auth_field (no delimiters). */
+static int strong_password(const char *password)
+{
+    int len = 0;
+    int hasUpper = 0, hasLower = 0, hasDigit = 0;
+    const char *p;
+
+    if (password == NULL)
+        return 0;
+    for (p = password; *p != '\0'; ++p) {
+        ++len;
+        if (isupper((unsigned char)*p)) hasUpper = 1;
+        if (islower((unsigned char)*p)) hasLower = 1;
+        if (isdigit((unsigned char)*p)) hasDigit = 1;
+    }
+    return len >= 8 && hasUpper && hasLower && hasDigit;
+}
+
 int citoyen_register(ParkyData *data, const User *user)
 {
     int i;
@@ -64,6 +84,7 @@ int citoyen_register(ParkyData *data, const User *user)
         data->userCount >= PARKY_MAX_USERS ||
         !valid_auth_field(user->name) ||
         !valid_auth_field(user->password) ||
+        !strong_password(user->password) ||
         !valid_email(user->email)) {
         return 0;
     }

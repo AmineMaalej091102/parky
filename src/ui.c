@@ -55,6 +55,8 @@ typedef struct {
     GtkWidget *signupUsername;
     GtkWidget *signupEmail;
     GtkWidget *signupPassword;
+    GtkWidget *signupStrengthBar;   /* GtkProgressBar beneath password entry */
+    GtkWidget *signupStrengthLabel; /* Pango label: Weak / Medium / Strong */
     GtkWidget *status;
     GtkWidget *citizenName;
     GtkWidget *citizenAddress;
@@ -106,6 +108,7 @@ static void start_admin_realtime_timer(UiState *state);
 static void stop_admin_realtime_timer(UiState *state);
 static void start_citizen_realtime_timer(UiState *state);
 static void stop_citizen_realtime_timer(UiState *state);
+static int  password_strength(const char *pw);
 static GdkPixbuf *make_parky_logo(void);
 static void set_entry_placeholder(GtkWidget *entry, const char *text);
 
@@ -1940,6 +1943,16 @@ static void create_account_clicked(GtkWidget *widget, gpointer user_data)
                      "Use at least 3 characters and no spaces or '|' separators.");
         return;
     }
+    if (password_strength(password) == 0) {
+        show_dialog(NULL, GTK_MESSAGE_ERROR, "Weak password",
+                    "Your password is too weak.\n\n"
+                    "Requirements:\n"
+                    "  \342\200\242 At least 8 characters\n"
+                    "  \342\200\242 At least one uppercase letter (A-Z)\n"
+                    "  \342\200\242 At least one lowercase letter (a-z)\n"
+                    "  \342\200\242 At least one digit (0-9)");
+        return;
+    }
     for (i = 0; i < state->data->userCount; ++i) {
         if (strcmp(state->data->users[i].name, username) == 0 ||
             strcmp(state->data->users[i].email, email) == 0) {
@@ -2658,6 +2671,84 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
     g_free(text);
 }
 
+/* Returns 0 (Weak), 1 (Medium), or 2 (Strong) for a signup password.
+   Mirrors the backend strong_password() rules in citoyen.c. */
+static int password_strength(const char *pw)
+{
+    int len = 0;
+    int hasUpper = 0, hasLower = 0, hasDigit = 0, hasSpecial = 0;
+    const char *p;
+
+    if (pw == NULL)
+        return 0;
+    for (p = pw; *p != '\0'; ++p) {
+        ++len;
+        if (isupper((unsigned char)*p)) hasUpper = 1;
+        if (islower((unsigned char)*p)) hasLower = 1;
+        if (isdigit((unsigned char)*p)) hasDigit = 1;
+        if (!isalnum((unsigned char)*p) &&
+            !isspace((unsigned char)*p) &&
+            *p != '|')
+            hasSpecial = 1;
+    }
+    if (len < 8 || !hasUpper || !hasLower || !hasDigit)
+        return 0; /* Weak */
+    if (len >= 10 && hasSpecial)
+        return 2; /* Strong */
+    return 1;     /* Medium */
+}
+
+static void signup_password_changed(GtkWidget *widget, gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    const char *pw  = gtk_entry_get_text(GTK_ENTRY(widget));
+    int strength    = password_strength(pw);
+    GdkColor bar_bg;
+    gdouble  fraction;
+    const char *markup;
+
+    /* Skip update when the entry still shows the placeholder text */
+    {
+        const char *placeholder = (const char *)g_object_get_data(
+            G_OBJECT(widget), "parky-placeholder");
+        if (placeholder != NULL && strcmp(pw, placeholder) == 0)
+            return;
+    }
+
+    if (state->signupStrengthBar == NULL ||
+        state->signupStrengthLabel == NULL)
+        return;
+
+    switch (strength) {
+    case 2: /* Strong */
+        gdk_color_parse("#10B981", &bar_bg);
+        fraction = 1.0;
+        markup   = "<span foreground='#10B981' size='small' weight='bold'>"
+                   "Strong password</span>";
+        break;
+    case 1: /* Medium */
+        gdk_color_parse("#F59E0B", &bar_bg);
+        fraction = 0.68;
+        markup   = "<span foreground='#F59E0B' size='small' weight='bold'>"
+                   "Medium \342\200\224 add a special symbol for extra strength"
+                   "</span>";
+        break;
+    default: /* Weak */
+        gdk_color_parse("#EF4444", &bar_bg);
+        fraction = (pw[0] == '\0') ? 0.0 : 0.30;
+        markup   = "<span foreground='#EF4444' size='small' weight='bold'>"
+                   "Weak \342\200\224 min 8 chars, upper, lower &amp; digit"
+                   "</span>";
+        break;
+    }
+
+    gtk_progress_bar_set_fraction(
+        GTK_PROGRESS_BAR(state->signupStrengthBar), fraction);
+    gtk_widget_modify_bg(state->signupStrengthBar,
+                         GTK_STATE_PRELIGHT, &bar_bg);
+    gtk_label_set_markup(GTK_LABEL(state->signupStrengthLabel), markup);
+}
+
 static GtkWidget *signup_view(UiState *state)
 {
     GtkWidget *root = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
@@ -2706,6 +2797,35 @@ static GtkWidget *signup_view(UiState *state)
     gtk_widget_set_size_request(state->signupEmail, 320, 38);
     gtk_widget_set_size_request(state->signupPassword, 320, 38);
     gtk_entry_set_visibility(GTK_ENTRY(state->signupPassword), TRUE);
+    /* ---- Strength meter (bar + label) ---- */
+    {
+        GtkWidget *meterBox = gtk_vbox_new(FALSE, 2);
+        GtkWidget *bar      = gtk_progress_bar_new();
+        GtkWidget *lbl      = gtk_label_new(NULL);
+        GdkColor   weakBg;
+
+        gtk_widget_set_size_request(bar, 320, 8);
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(bar), 0.0);
+        gdk_color_parse("#EF4444", &weakBg);
+        gtk_widget_modify_bg(bar, GTK_STATE_PRELIGHT, &weakBg);
+
+        gtk_label_set_markup(GTK_LABEL(lbl),
+            "<span foreground='#8A94A6' size='small'>"
+            "Enter a password to see its strength</span>");
+        gtk_misc_set_alignment(GTK_MISC(lbl), 0.0, 0.5);
+
+        gtk_box_pack_start(GTK_BOX(meterBox), bar, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(meterBox), lbl, FALSE, FALSE, 0);
+
+        {
+            GtkWidget *meterAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+            gtk_container_add(GTK_CONTAINER(meterAlign), meterBox);
+            gtk_box_pack_start(GTK_BOX(box), meterAlign, FALSE, FALSE, 0);
+        }
+
+        state->signupStrengthBar   = bar;
+        state->signupStrengthLabel = lbl;
+    }
     style_button(createButton, "#287A4D", "#FFFFFF");
     {
         GtkWidget *createAlignment =
@@ -2728,6 +2848,8 @@ static GtkWidget *signup_view(UiState *state)
                      G_CALLBACK(create_account_clicked), state);
     g_signal_connect(state->signupPassword, "activate",
                      G_CALLBACK(create_account_clicked), state);
+    g_signal_connect(state->signupPassword, "changed",
+                     G_CALLBACK(signup_password_changed), state);
     gtk_widget_grab_focus(createButton);
     return root;
 }
