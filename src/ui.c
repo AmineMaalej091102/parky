@@ -1725,7 +1725,6 @@ static void refresh_citizen_parkings(UiState *state)
     const char *nameFilter;
     const char *addrFilter;
     int onlyAvail;
-    char statusMsg[64];
 
     if (state->citizenParkings == NULL)
         return;
@@ -1774,12 +1773,15 @@ static void refresh_citizen_parkings(UiState *state)
             gtk_tree_selection_select_iter(sel, &iter);
     }
 
-    /* Update the inline status label */
+    /* Update the inline status badge above the parkings table */
     if (state->citizenSearchStatus != NULL) {
-        snprintf(statusMsg, sizeof(statusMsg),
-                 "%d parking(s) matched", count);
-        gtk_label_set_text(GTK_LABEL(state->citizenSearchStatus),
-                           statusMsg);
+        char markup[128];
+        snprintf(markup, sizeof(markup),
+                 "<span background='#E2E8F0' foreground='#475569'"
+                 " size='small'> %d matched </span>",
+                 count);
+        gtk_label_set_markup(GTK_LABEL(state->citizenSearchStatus),
+                             markup);
     }
 }
 
@@ -4365,16 +4367,6 @@ static GtkWidget *citizen_view(UiState *state)
         gtk_box_pack_start(GTK_BOX(filterBar), clearBtn,
                            FALSE, FALSE, 2);
     }
-    {
-        GtkWidget *statusLbl = gtk_label_new(NULL);
-        gtk_label_set_markup(GTK_LABEL(statusLbl),
-            "<span foreground='#475569' size='small'>"
-            "All parkings shown</span>");
-        gtk_misc_set_alignment(GTK_MISC(statusLbl), 0.0, 0.5);
-        state->citizenSearchStatus = statusLbl;
-        gtk_box_pack_start(GTK_BOX(filterBar), statusLbl,
-                           FALSE, FALSE, 4);
-    }
     gtk_box_pack_start(GTK_BOX(findTab), filterBar, FALSE, FALSE, 2);
 
     /* Live filter: re-run search on every keystroke or toggle */
@@ -4385,7 +4377,34 @@ static GtkWidget *citizen_view(UiState *state)
     g_signal_connect(state->citizenAvailable, "toggled",
                      G_CALLBACK(search_clicked), state);
 
-    /* Left: Available Parkings table (ID hidden col 0) */
+    /* Left: header row (title left, matched-badge right) + parkings table */
+    {
+        GtkWidget *tableHeader = gtk_hbox_new(FALSE, 6);
+        GtkWidget *tableTitle  = gtk_label_new(NULL);
+        GtkWidget *badgeLbl    = gtk_label_new(NULL);
+        GtkWidget *spacer      = gtk_label_new("");
+
+        gtk_label_set_markup(GTK_LABEL(tableTitle),
+            "<span foreground='#1B2A4A' weight='bold'>Available Parkings</span>");
+        gtk_misc_set_alignment(GTK_MISC(tableTitle), 0.0, 0.5);
+
+        gtk_label_set_markup(GTK_LABEL(badgeLbl),
+            "<span background='#E2E8F0' foreground='#475569'"
+            " size='small'> — </span>");
+        gtk_misc_set_alignment(GTK_MISC(badgeLbl), 1.0, 0.5);
+        state->citizenSearchStatus = badgeLbl;
+
+        gtk_box_pack_start(GTK_BOX(tableHeader), tableTitle,
+                           FALSE, FALSE, 2);
+        gtk_box_pack_start(GTK_BOX(tableHeader), spacer,
+                           TRUE, TRUE, 0);
+        gtk_box_pack_start(GTK_BOX(tableHeader), badgeLbl,
+                           FALSE, FALSE, 2);
+        gtk_box_pack_start(GTK_BOX(leftSide), tableHeader,
+                           FALSE, FALSE, 2);
+    }
+
+    /* Available Parkings table (ID hidden col 0) */
     state->citizenParkings =
         make_tree_view("Available Parkings", &store, parkingTitles, 5);
     gtk_widget_set_size_request(state->citizenParkings, -1, 300);
