@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 (Admin Users and Agents Split)
-- **Completed:** Split admin citizens and parking agents into filtered tabs with role-specific CRUD panels; admin accounts remain hidden.
-- **Next Task:** Capture a GTK2 visual review of the fixed 1180x740 layout.
-- **Build Status:** Ubuntu 18.04 Docker build passes cleanly with -Wall -Wextra.
+- **Active Release:** v1.0.0 (Parking Agent Dashboard Polish)
+- **Completed:** Restored labeled 48px +1 Free Spot / -1 Spot Occupied buttons and clean Report an Issue layout (with Issue Description label) while keeping visible GtkNotebook tab labels in src/ui.c.
+- **Next Task:** Capture a GTK2 visual review of the Agent dashboard at 1180x740.
+- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) passes cleanly with zero warnings.

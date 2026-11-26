@@ -1,4 +1,4 @@
-1 Tunis_Centre Tunis_Centre_Ville 60 48 1
+1 Tunis_Centre Tunis_Centre_Ville 60 48 0
 2 Lac_1 Berges_du_Lac_1 80 64 1
 3 Ariana Ariana_City 100 80 1
 4 Menzah El_Menzah_4 120 96 1
