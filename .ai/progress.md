@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 (Admin Dashboard Real-Time & Agent Button Grid)
-- **Completed:** Real-time 2s polling (g_timeout_add/g_source_remove) started on admin sign-in, stopped on sign-out/window-close; 5 KPI cards + Occupancy Summary auto-reload; row selection preserved across ticks; Refresh button absent from header. Agent Management 4-button layout replaced with clean 2×2 GtkTable (Add/Edit/Delete/Assign all visible). Fixed duplicate `GtkWidget *actionsRow/actionsAlign` declarations in admin_view() by moving each into its own block scope — compiles -Wall -Wextra clean on Ubuntu 18.04 Docker.
+﻿- **Active Release:** v1.0.0 (Enter-key form submission)
+- **Completed:** Connected "activate" signal on loginEmail + loginPassword → login_clicked; signupUsername + signupEmail + signupPassword → create_account_clicked. Pressing Enter in any auth field now submits the respective form immediately. Compiles -Wall -Wextra clean on Ubuntu 18.04 Docker (EXIT:0, no warnings).
 - **Next Task:** Boot in Docker with DISPLAY forwarded and visually verify Admin Dashboard at 1180×740.
-- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) confirmed clean — EXIT:0, no warnings.
+- **Build Status:** Ubuntu 18.04 Docker build confirmed clean — EXIT:0.

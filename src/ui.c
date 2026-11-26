@@ -2455,6 +2455,12 @@ static GtkWidget *signup_view(UiState *state)
                      G_CALLBACK(create_account_clicked), state);
     g_signal_connect(backLink, "clicked",
                      G_CALLBACK(back_to_login_clicked), state);
+    g_signal_connect(state->signupUsername, "activate",
+                     G_CALLBACK(create_account_clicked), state);
+    g_signal_connect(state->signupEmail,    "activate",
+                     G_CALLBACK(create_account_clicked), state);
+    g_signal_connect(state->signupPassword, "activate",
+                     G_CALLBACK(create_account_clicked), state);
     gtk_widget_grab_focus(createButton);
     return root;
 }
@@ -2531,6 +2537,10 @@ static GtkWidget *login_view(UiState *state)
     g_signal_connect(loginBtn, "clicked", G_CALLBACK(login_clicked), state);
     g_signal_connect(signupLink, "clicked",
                      G_CALLBACK(open_signup_clicked), state);
+    g_signal_connect(state->loginEmail,    "activate",
+                     G_CALLBACK(login_clicked), state);
+    g_signal_connect(state->loginPassword, "activate",
+                     G_CALLBACK(login_clicked), state);
     gtk_widget_grab_focus(loginBtn);
     return root;
 }
