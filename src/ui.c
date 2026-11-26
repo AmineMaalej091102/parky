@@ -4178,7 +4178,7 @@ static GtkWidget *citizen_view(UiState *state)
     GtkWidget *cancelBtn;
 
     /* ---- Tab 3: Reviews & Complaints ---- */
-    GtkWidget *feedTab      = gtk_hbox_new(FALSE, 8);
+    GtkWidget *feedTab      = gtk_hbox_new(TRUE, 14);
     GtkWidget *reviewCard;
     GtkWidget *reviewCardBox = gtk_vbox_new(FALSE, 8);
     GtkWidget *reviewTitle   = gtk_label_new(NULL);
@@ -4475,8 +4475,8 @@ static GtkWidget *citizen_view(UiState *state)
         gtk_box_pack_start(GTK_BOX(reviewCardBox), revAlign,
                            FALSE, FALSE, 6);
     }
-    reviewCard = make_admin_panel_card(reviewCardBox, 260);
-    gtk_box_pack_start(GTK_BOX(feedTab), reviewCard, FALSE, FALSE, 0);
+    reviewCard = make_admin_panel_card(reviewCardBox, -1);
+    gtk_box_pack_start(GTK_BOX(feedTab), reviewCard, TRUE, TRUE, 0);
 
     /* -- Submit Complaint card -- */
     gtk_container_set_border_width(GTK_CONTAINER(complaintCardBox), 12);
@@ -4528,8 +4528,8 @@ static GtkWidget *citizen_view(UiState *state)
         gtk_box_pack_start(GTK_BOX(complaintCardBox), cmpAlign,
                            FALSE, FALSE, 6);
     }
-    complaintCard = make_admin_panel_card(complaintCardBox, 260);
-    gtk_box_pack_start(GTK_BOX(feedTab), complaintCard, FALSE, FALSE, 0);
+    complaintCard = make_admin_panel_card(complaintCardBox, -1);
+    gtk_box_pack_start(GTK_BOX(feedTab), complaintCard, TRUE, TRUE, 0);
 
     /* -- Community Reviews table -- */
     communityReviews =
