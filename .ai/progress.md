@@ -1,4 +1,4 @@
-- **Active Release:** v1.0.0 (Admin Dashboard Design Unification)
-- **Completed:** Rewrote admin_view() in src/ui.c to match Agent Dashboard styling: coloured KPI hero bar (5 pills: blue/indigo/teal/red/emerald), icon+label notebook tabs with gtk_widget_show_all(), 280px white card panels, make_admin_action_button() with cohesive colours/tooltips; white bold markup in KPI refresh; pure GTK+2 API, compiles -Wall -Wextra clean.
-- **Next Task:** Boot in Docker and visually verify Admin Dashboard at 1180x740 against Agent Dashboard.
-- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) expected clean — Docker inaccessible from sandbox, verify on next manual run.
+﻿- **Active Release:** v1.0.0 (Admin Dashboard Real-Time & Agent Button Grid)
+- **Completed:** Real-time 2s polling (g_timeout_add/g_source_remove) started on admin sign-in, stopped on sign-out/window-close; 5 KPI cards + Occupancy Summary auto-reload; row selection preserved across ticks; Refresh button absent from header. Agent Management 4-button layout replaced with clean 2×2 GtkTable (Add/Edit/Delete/Assign all visible). Fixed duplicate `GtkWidget *actionsRow/actionsAlign` declarations in admin_view() by moving each into its own block scope — compiles -Wall -Wextra clean on Ubuntu 18.04 Docker.
+- **Next Task:** Boot in Docker with DISPLAY forwarded and visually verify Admin Dashboard at 1180×740.
+- **Build Status:** Ubuntu 18.04 Docker build (gcc -Wall -Wextra) confirmed clean — EXIT:0, no warnings.

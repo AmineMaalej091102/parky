@@ -82,6 +82,7 @@ typedef struct {
     GtkWidget *agentComplaintSubject;
     GtkWidget *agentComplaintText;
     guint agentRefreshTimerId;
+    guint adminRefreshTimerId;
     GtkWidget *root;
     GtkWidget *profileImage;
 } UiState;
@@ -93,6 +94,8 @@ static void set_page(UiState *state, int page);
 static void refresh_dashboard_identity(UiState *state);
 static void start_agent_realtime_timer(UiState *state);
 static void stop_agent_realtime_timer(UiState *state);
+static void start_admin_realtime_timer(UiState *state);
+static void stop_admin_realtime_timer(UiState *state);
 static GdkPixbuf *make_parky_logo(void);
 static void set_entry_placeholder(GtkWidget *entry, const char *text);
 
@@ -173,6 +176,7 @@ static int valid_email(const char *email)
 static void sign_out(UiState *state)
 {
     stop_agent_realtime_timer(state);
+    stop_admin_realtime_timer(state);
     state->activeUserId = 0;
     refresh_dashboard_identity(state);
     gtk_entry_set_text(GTK_ENTRY(state->loginEmail), "");
@@ -891,6 +895,38 @@ static int tree_selected_first_id(UiState *state, GtkWidget *treeWidget)
     return id;
 }
 
+/* Re-select the row with the given ID (column 0) in a tree view, if present.
+   Used by refresh_admin_tables() to keep the active selection across reloads. */
+static void tree_select_id(GtkWidget *treeWidget, int id)
+{
+    GtkWidget *frameChild;
+    GtkWidget *scroller;
+    GtkWidget *tree;
+    GtkListStore *store;
+    GtkTreeSelection *selection;
+    GtkTreeIter iter;
+    gboolean valid;
+    gchar *text = NULL;
+
+    frameChild = gtk_bin_get_child(GTK_BIN(treeWidget));
+    scroller = GTK_IS_SCROLLED_WINDOW(frameChild) ? frameChild : frameChild;
+    tree = gtk_bin_get_child(GTK_BIN(scroller));
+    store = GTK_LIST_STORE(gtk_tree_view_get_model(GTK_TREE_VIEW(tree)));
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
+    valid = gtk_tree_model_get_iter_first(GTK_TREE_MODEL(store), &iter);
+    while (valid) {
+        text = NULL;
+        gtk_tree_model_get(GTK_TREE_MODEL(store), &iter, 0, &text, -1);
+        if (text != NULL && atoi(text) == id) {
+            gtk_tree_selection_select_iter(selection, &iter);
+            g_free(text);
+            return;
+        }
+        g_free(text);
+        valid = gtk_tree_model_iter_next(GTK_TREE_MODEL(store), &iter);
+    }
+}
+
 static GtkWidget *admin_user_tree(UiState *state, UserRole role)
 {
     return role == USER_AGENT ? state->adminAgents : state->adminUsers;
@@ -936,6 +972,18 @@ static void refresh_admin_tables(UiState *state)
     int i;
     int agentCount = 0;
     int pending = 0;
+    int usersSelId = 0;
+    int agentsSelId = 0;
+    int parkingsSelId = 0;
+    int complaintsSelId = 0;
+
+    /* Remember the active row of each table so a timed reload keeps the
+       selection instead of jumping back to the first row. */
+    usersSelId = tree_selected_first_id(state, state->adminUsers);
+    agentsSelId = tree_selected_first_id(state, state->adminAgents);
+    parkingsSelId = tree_selected_first_id(state, state->adminParkings);
+    complaintsSelId =
+        tree_selected_first_id(state, state->adminComplaints);
 
     store = tree_store(state, state->adminUsers);
     agentStore = tree_store(state, state->adminAgents);
@@ -977,6 +1025,8 @@ static void refresh_admin_tables(UiState *state)
                                state->data->users[i].email, -1);
         }
     }
+    tree_select_id(state->adminUsers, usersSelId);
+    tree_select_id(state->adminAgents, agentsSelId);
 
     store = tree_store(state, state->adminParkings);
     gtk_list_store_clear(store);
@@ -1004,6 +1054,7 @@ static void refresh_admin_tables(UiState *state)
                            state->data->parkings[i].address, 3, total,
                            4, available, 5, price, 6, agentName, -1);
     }
+    tree_select_id(state->adminParkings, parkingsSelId);
 
     store = tree_store(state, state->adminComplaints);
     gtk_list_store_clear(store);
@@ -1026,6 +1077,7 @@ static void refresh_admin_tables(UiState *state)
                            state->data->complaints[i].status == 2 ?
                            "Resolved" : "Open", -1);
     }
+    tree_select_id(state->adminComplaints, complaintsSelId);
 
     {
         char markup[128];
@@ -1563,6 +1615,51 @@ static void stop_agent_realtime_timer(UiState *state)
     }
 }
 
+static gboolean on_admin_realtime_tick(gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int i;
+    int isAdmin = 0;
+
+    if (state == NULL || state->activeUserId <= 0 ||
+        state->notebook == NULL) {
+        if (state != NULL)
+            state->adminRefreshTimerId = 0;
+        return FALSE;
+    }
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (state->data->users[i].id == state->activeUserId) {
+            isAdmin = (state->data->users[i].role == USER_ADMIN);
+            break;
+        }
+    }
+    if (!isAdmin) {
+        state->adminRefreshTimerId = 0;
+        return FALSE;
+    }
+    if (gtk_notebook_get_current_page(GTK_NOTEBOOK(state->notebook)) == 1 &&
+        storage_load(state->data))
+        refresh_admin_tables(state);
+    return TRUE;
+}
+
+static void start_admin_realtime_timer(UiState *state)
+{
+    stop_admin_realtime_timer(state);
+    if (state != NULL) {
+        state->adminRefreshTimerId =
+            g_timeout_add(2000, on_admin_realtime_tick, state);
+    }
+}
+
+static void stop_admin_realtime_timer(UiState *state)
+{
+    if (state != NULL && state->adminRefreshTimerId != 0) {
+        g_source_remove(state->adminRefreshTimerId);
+        state->adminRefreshTimerId = 0;
+    }
+}
+
 static void refresh_citizen_tables(UiState *state)
 {
     GtkListStore *store;
@@ -1712,6 +1809,7 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
             if (user->role == USER_ADMIN) {
                 refresh_admin_tables(state);
                 set_page(state, 1);
+                start_admin_realtime_timer(state);
             } else if (user->role == USER_AGENT) {
                 refresh_agent_tables(state);
                 set_page(state, 2);
@@ -2455,13 +2553,6 @@ static int next_id_from_parkings(const ParkyData *data)
     return next;
 }
 
-static void admin_refresh_clicked(GtkWidget *widget, gpointer user_data)
-{
-    (void)widget;
-    refresh_admin_tables((UiState *)user_data);
-    set_status((UiState *)user_data, "Dashboard statistics refreshed");
-}
-
 static void admin_add_user_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
@@ -2876,7 +2967,6 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *overview = gtk_vbox_new(FALSE, 8);
     GtkWidget *overviewInner;
     GtkWidget *overviewEvent;
-    GtkWidget *refreshBtn;
     GtkWidget *occupancyHeader = gtk_hbox_new(FALSE, 8);
     GtkWidget *occupancyTitle  = gtk_label_new(NULL);
     GtkListStore *occupancyStore;
@@ -2908,7 +2998,7 @@ static GtkWidget *admin_view(UiState *state)
     GtkWidget *addAgent, *editAgent, *deleteAgent, *assignAgent;
     GtkWidget *addParking, *updateParking, *deleteParking;
     GtkWidget *resolveComplaint, *deleteComplaint;
-    GtkWidget *actionsRow, *actionsAlign;
+    GtkWidget *actionsTable;
     GtkWidget *detailScroller;
 
     const char *userTitles[]    = {"ID", "Username", "Email"};
@@ -2997,10 +3087,6 @@ static GtkWidget *admin_view(UiState *state)
     overviewInner = gtk_vbox_new(FALSE, 8);
     gtk_container_set_border_width(GTK_CONTAINER(overviewInner), 10);
 
-    refreshBtn = make_admin_action_button("Refresh", GTK_STOCK_REFRESH,
-                                          "#1F5FBF", "#2B4478", "#FFFFFF");
-    gtk_widget_set_tooltip_text(refreshBtn, "Reload all statistics");
-
     gtk_label_set_markup(GTK_LABEL(occupancyTitle),
                          "<span foreground='#1B2A4A' size='large'"
                          " weight='bold'>"
@@ -3009,8 +3095,6 @@ static GtkWidget *admin_view(UiState *state)
     gtk_misc_set_alignment(GTK_MISC(occupancyTitle), 0.0, 0.5);
     gtk_box_pack_start(GTK_BOX(occupancyHeader), occupancyTitle,
                        TRUE, TRUE, 0);
-    gtk_box_pack_end(GTK_BOX(occupancyHeader), refreshBtn,
-                     FALSE, FALSE, 0);
 
     occupancyCard = make_tree_view("Occupancy Summary", &occupancyStore,
                                    occupancyTitles, 5);
@@ -3027,8 +3111,6 @@ static GtkWidget *admin_view(UiState *state)
     tabLabel = make_stock_tab("Overview & Stats", GTK_STOCK_HOME);
     gtk_widget_show_all(tabLabel);
     gtk_notebook_append_page(GTK_NOTEBOOK(tabs), overview, tabLabel);
-    g_signal_connect(refreshBtn, "clicked",
-                     G_CALLBACK(admin_refresh_clicked), state);
 
     /* ================================================================
        4a. USERS TAB (Citizens only)
@@ -3077,14 +3159,16 @@ static GtkWidget *admin_view(UiState *state)
     gtk_widget_set_tooltip_text(editUser,   "Edit selected citizen");
     gtk_widget_set_tooltip_text(deleteUser, "Delete selected citizen");
 
-    actionsRow   = gtk_hbox_new(FALSE, 8);
-    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), addUser,    FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), editUser,   FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), deleteUser, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
-    gtk_box_pack_start(GTK_BOX(usersPanelBox), actionsAlign,
-                       FALSE, FALSE, 6);
+    {
+        GtkWidget *actionsRow   = gtk_hbox_new(FALSE, 8);
+        GtkWidget *actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), addUser,    FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), editUser,   FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), deleteUser, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+        gtk_box_pack_start(GTK_BOX(usersPanelBox), actionsAlign,
+                           FALSE, FALSE, 6);
+    }
 
     usersPanelCard = make_admin_panel_card(usersPanelBox, 280);
     gtk_box_pack_start(GTK_BOX(usersTab), usersPanelCard, FALSE, FALSE, 0);
@@ -3179,14 +3263,24 @@ static GtkWidget *admin_view(UiState *state)
     gtk_widget_set_tooltip_text(assignAgent,
                                 "Assign selected agent to parking");
 
-    actionsRow   = gtk_hbox_new(FALSE, 8);
-    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), addAgent,    FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), editAgent,   FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), deleteAgent, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), assignAgent, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
-    gtk_box_pack_start(GTK_BOX(agentsPanelBox), actionsAlign,
+    /* Clean 2x2 grid: the 4th button (Assign) can never be clipped
+       by the right edge of the 280px card. */
+    actionsTable = gtk_table_new(2, 2, FALSE);
+    gtk_table_set_row_spacings(GTK_TABLE(actionsTable), 6);
+    gtk_table_set_col_spacings(GTK_TABLE(actionsTable), 6);
+    gtk_widget_set_size_request(addAgent,    116, 34);
+    gtk_widget_set_size_request(editAgent,   116, 34);
+    gtk_widget_set_size_request(deleteAgent, 116, 34);
+    gtk_widget_set_size_request(assignAgent, 116, 34);
+    gtk_table_attach(GTK_TABLE(actionsTable), addAgent,    0, 1, 0, 1,
+                     GTK_FILL, GTK_FILL, 0, 0);
+    gtk_table_attach(GTK_TABLE(actionsTable), editAgent,   1, 2, 0, 1,
+                     GTK_FILL, GTK_FILL, 0, 0);
+    gtk_table_attach(GTK_TABLE(actionsTable), deleteAgent, 0, 1, 1, 2,
+                     GTK_FILL, GTK_FILL, 0, 0);
+    gtk_table_attach(GTK_TABLE(actionsTable), assignAgent, 1, 2, 1, 2,
+                     GTK_FILL, GTK_FILL, 0, 0);
+    gtk_box_pack_start(GTK_BOX(agentsPanelBox), actionsTable,
                        FALSE, FALSE, 6);
 
     agentsPanelCard = make_admin_panel_card(agentsPanelBox, 280);
@@ -3266,14 +3360,16 @@ static GtkWidget *admin_view(UiState *state)
     gtk_widget_set_tooltip_text(updateParking, "Update selected parking");
     gtk_widget_set_tooltip_text(deleteParking, "Delete selected parking");
 
-    actionsRow   = gtk_hbox_new(FALSE, 8);
-    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), addParking,    FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), updateParking, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), deleteParking, FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
-    gtk_box_pack_start(GTK_BOX(parkingPanelBox), actionsAlign,
-                       FALSE, FALSE, 6);
+    {
+        GtkWidget *actionsRow   = gtk_hbox_new(FALSE, 8);
+        GtkWidget *actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), addParking,    FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), updateParking, FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), deleteParking, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+        gtk_box_pack_start(GTK_BOX(parkingPanelBox), actionsAlign,
+                           FALSE, FALSE, 6);
+    }
 
     parkingPanelCard = make_admin_panel_card(parkingPanelBox, 280);
     gtk_box_pack_start(GTK_BOX(parkingsTab), parkingPanelCard,
@@ -3343,15 +3439,17 @@ static GtkWidget *admin_view(UiState *state)
     gtk_widget_set_tooltip_text(deleteComplaint,
                                 "Delete selected complaint");
 
-    actionsRow   = gtk_hbox_new(FALSE, 8);
-    actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), resolveComplaint,
-                       FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(actionsRow), deleteComplaint,
-                       FALSE, FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
-    gtk_box_pack_start(GTK_BOX(complaintPanelBox), actionsAlign,
-                       FALSE, FALSE, 6);
+    {
+        GtkWidget *actionsRow   = gtk_hbox_new(FALSE, 8);
+        GtkWidget *actionsAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), resolveComplaint,
+                           FALSE, FALSE, 0);
+        gtk_box_pack_start(GTK_BOX(actionsRow), deleteComplaint,
+                           FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(actionsAlign), actionsRow);
+        gtk_box_pack_start(GTK_BOX(complaintPanelBox), actionsAlign,
+                           FALSE, FALSE, 6);
+    }
 
     complaintPanelCard = make_admin_panel_card(complaintPanelBox, 280);
     gtk_box_pack_start(GTK_BOX(complaintsTab), complaintPanelCard,
@@ -3895,6 +3993,7 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data)
 {
     (void)widget;
     stop_agent_realtime_timer((UiState *)user_data);
+    stop_admin_realtime_timer((UiState *)user_data);
     gtk_main_quit();
 }
 
