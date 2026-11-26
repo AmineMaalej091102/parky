@@ -58,17 +58,21 @@ typedef struct {
     GtkWidget *citizenName;
     GtkWidget *citizenAddress;
     GtkWidget *citizenAvailable;
-    GtkWidget *citizenParking;
+    GtkWidget *citizenParking;       /* hidden GtkEntry carrying selected parking ID */
+    GtkWidget *citizenSelectedLabel; /* "Selected: <name>" label in booking card */
     GtkWidget *citizenSpot;
     GtkWidget *citizenDate;
     GtkWidget *citizenTime;
     GtkWidget *citizenService;
-    GtkWidget *citizenHours;
+    GtkWidget *citizenHours;         /* hidden GtkEntry, always "1", drives tariff */
     GtkWidget *tariff;
     GtkWidget *reviewRating;
     GtkWidget *reviewComment;
+    GtkWidget *reviewParkingCombo;   /* parking dropdown in review form */
     GtkWidget *complaintSubject;
     GtkWidget *complaintText;
+    GtkWidget *citizenCancelBtn;     /* Cancel Reservation button in Tab 2 */
+    guint      citizenRefreshTimerId;
     GtkWidget *agentServiceName;
     GtkWidget *agentServiceDescription;
     GtkWidget *agentServicePrice;
@@ -96,6 +100,8 @@ static void start_agent_realtime_timer(UiState *state);
 static void stop_agent_realtime_timer(UiState *state);
 static void start_admin_realtime_timer(UiState *state);
 static void stop_admin_realtime_timer(UiState *state);
+static void start_citizen_realtime_timer(UiState *state);
+static void stop_citizen_realtime_timer(UiState *state);
 static GdkPixbuf *make_parky_logo(void);
 static void set_entry_placeholder(GtkWidget *entry, const char *text);
 
@@ -177,6 +183,7 @@ static void sign_out(UiState *state)
 {
     stop_agent_realtime_timer(state);
     stop_admin_realtime_timer(state);
+    stop_citizen_realtime_timer(state);
     state->activeUserId = 0;
     refresh_dashboard_identity(state);
     gtk_entry_set_text(GTK_ENTRY(state->loginEmail), "");
@@ -560,6 +567,9 @@ static void load_profile_image(UiState *state)
 
 static void choose_profile_photo_clicked(GtkWidget *widget,
                                          gpointer user_data)
+    __attribute__((unused));
+static void choose_profile_photo_clicked(GtkWidget *widget,
+                                         gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
     GtkWidget *dialog;
@@ -728,10 +738,7 @@ static GtkWidget *make_dashboard_header(UiState *state, const char *role)
     }
     gtk_box_pack_start(GTK_BOX(header), brand, FALSE, FALSE, 8);
     gtk_box_pack_start(GTK_BOX(header), spacer, TRUE, TRUE, 0);
-    if (strcmp(role, "CITIZEN") == 0) {
-        gtk_box_pack_start(GTK_BOX(profile), avatar, FALSE, FALSE, 0);
-        gtk_box_pack_start(GTK_BOX(profile), identity, FALSE, FALSE, 0);
-    }
+    /* For CITIZEN: show only badge + sign-out (no avatar or name text) */
     gtk_box_pack_start(GTK_BOX(profile), badge, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(profile), signOut, FALSE, FALSE, 4);
     gtk_box_pack_start(GTK_BOX(header), profile, FALSE, FALSE, 8);
@@ -1660,6 +1667,44 @@ static void stop_admin_realtime_timer(UiState *state)
     }
 }
 
+/* Repopulate the parking dropdown in the Review form with current parking names.
+   Called from refresh_citizen_tables() so it stays in sync. */
+static void refresh_citizen_review_combo(UiState *state)
+{
+    int i;
+    int active;
+    int activeParkingId = 0;
+    GtkComboBox *combo;
+
+    if (state->reviewParkingCombo == NULL)
+        return;
+    combo = GTK_COMBO_BOX(state->reviewParkingCombo);
+
+    /* Remember which parking was selected so we can restore it */
+    active = gtk_combo_box_get_active(combo);
+    if (active > 0 && active - 1 < state->data->parkingCount)
+        activeParkingId = state->data->parkings[active - 1].id;
+
+    gtk_list_store_clear(GTK_LIST_STORE(
+        gtk_combo_box_get_model(combo)));
+
+    gtk_combo_box_append_text(GTK_COMBO_BOX(combo), "Select a parking...");
+    for (i = 0; i < state->data->parkingCount; ++i)
+        gtk_combo_box_append_text(GTK_COMBO_BOX(combo),
+                                  state->data->parkings[i].name);
+
+    /* Restore previous selection */
+    gtk_combo_box_set_active(combo, 0);
+    if (activeParkingId > 0) {
+        for (i = 0; i < state->data->parkingCount; ++i) {
+            if (state->data->parkings[i].id == activeParkingId) {
+                gtk_combo_box_set_active(combo, i + 1);
+                break;
+            }
+        }
+    }
+}
+
 static void refresh_citizen_tables(UiState *state)
 {
     GtkListStore *store;
@@ -1667,54 +1712,132 @@ static void refresh_citizen_tables(UiState *state)
     char value[128];
     int i;
 
+    /* ---- Tab 1: Available Parkings (ID hidden col 0, Name, Address,
+                                        Available, Hourly Rate) ---- */
     store = tree_store(state, state->citizenParkings);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->parkingCount; ++i) {
+        char available[32];
+        snprintf(value,     sizeof(value),     "%d",
+                 state->data->parkings[i].id);
+        snprintf(available, sizeof(available), "%d",
+                 state->data->parkings[i].availableSpots);
         gtk_list_store_append(store, &iter);
-        snprintf(value, sizeof(value), "%d", state->data->parkings[i].id);
-        {
-            char available[32];
-            snprintf(available, sizeof(available), "%d",
-                     state->data->parkings[i].availableSpots);
-            gtk_list_store_set(store, &iter, 0, value, 1,
-                               state->data->parkings[i].name, 2,
-                               state->data->parkings[i].address, 3,
-                               available, -1);
-        }
+        gtk_list_store_set(store, &iter,
+                           0, value,
+                           1, state->data->parkings[i].name,
+                           2, state->data->parkings[i].address,
+                           3, available,
+                           4, "2.00 TND/hr",
+                           -1);
     }
 
+    /* ---- Tab 2: My Reservations
+            (ID hidden col 0, Parking Name, Spot, Date, Time,
+             Total TND, Status markup) ---- */
     if (state->citizenReservations != NULL) {
+        GtkWidget *resTree = gtk_bin_get_child(GTK_BIN(
+            gtk_bin_get_child(GTK_BIN(state->citizenReservations))));
+        GtkTreeSelection *resSel =
+            gtk_tree_view_get_selection(GTK_TREE_VIEW(resTree));
+        GtkTreeModel *resModel =
+            gtk_tree_view_get_model(GTK_TREE_VIEW(resTree));
+        GtkTreeIter selIter;
+        int selId = 0;
+
+        /* Remember selected ID to restore after reload */
+        if (gtk_tree_selection_get_selected(resSel, &resModel, &selIter)) {
+            gchar *txt = NULL;
+            gtk_tree_model_get(resModel, &selIter, 0, &txt, -1);
+            if (txt != NULL) { selId = atoi(txt); g_free(txt); }
+        }
+
         store = tree_store(state, state->citizenReservations);
         gtk_list_store_clear(store);
         for (i = 0; i < state->data->reservationCount; ++i) {
-            if (state->data->reservations[i].citizenId ==
-                state->activeUserId) {
-                const char *status =
-                    state->data->reservations[i].status ==
-                    RESERVATION_APPROVED ? "Approved" :
-                    state->data->reservations[i].status ==
-                    RESERVATION_REJECTED ? "Rejected" :
-                    state->data->reservations[i].status == 3 ?
-                    "Completed" : "Pending";
-                gtk_list_store_append(store, &iter);
-                snprintf(value, sizeof(value), "%d",
-                         state->data->reservations[i].id);
-                gtk_list_store_set(store, &iter, 0, value, 1,
-                                   state->data->reservations[i].date,
-                                   2, state->data->reservations[i].time,
-                                   3, status, -1);
+            const Reservation *res = &state->data->reservations[i];
+            const char *parkingName = "Unknown";
+            const char *statusMarkup;
+            char spotText[32], totalText[32], idText[32];
+            int j;
+            double total;
+
+            if (res->citizenId != state->activeUserId)
+                continue;
+
+            /* Derive parking name */
+            for (j = 0; j < state->data->parkingCount; ++j) {
+                if (state->data->parkings[j].id == res->parkingId) {
+                    parkingName = state->data->parkings[j].name;
+                    break;
+                }
             }
+
+            if (res->spotNumber > 0)
+                snprintf(spotText, sizeof(spotText), "%d", res->spotNumber);
+            else
+                snprintf(spotText, sizeof(spotText), "-");
+
+            /* Compute total: service bookings store service id in time field */
+            if (strncmp(res->time, "service-", 8) == 0) {
+                int svcId = atoi(res->time + 8);
+                total = 0.0;
+                for (j = 0; j < state->data->serviceCount; ++j) {
+                    if (state->data->services[j].id == svcId) {
+                        total = (double)state->data->services[j].price;
+                        break;
+                    }
+                }
+            } else {
+                total = citoyen_compute_billing(state->data,
+                                               res->parkingId, 0, 1);
+            }
+            snprintf(totalText, sizeof(totalText), "%.2f TND", total);
+
+            if (res->status == RESERVATION_APPROVED)
+                statusMarkup =
+                    "<span foreground='#10B981' weight='bold'>Approved</span>";
+            else if (res->status == RESERVATION_REJECTED)
+                statusMarkup =
+                    "<span foreground='#EF4444' weight='bold'>Rejected</span>";
+            else if (res->status == 3)
+                statusMarkup =
+                    "<span foreground='#1F5FBF' weight='bold'>Completed</span>";
+            else
+                statusMarkup =
+                    "<span foreground='#D97706' weight='bold'>Pending</span>";
+
+            snprintf(idText, sizeof(idText), "%d", res->id);
+            gtk_list_store_append(store, &iter);
+            gtk_list_store_set(store, &iter,
+                               0, idText,
+                               1, parkingName,
+                               2, spotText,
+                               3, res->date,
+                               4, res->time,
+                               5, totalText,
+                               6, statusMarkup,
+                               -1);
+            if (selId > 0 && res->id == selId)
+                gtk_tree_selection_select_iter(resSel, &iter);
         }
     }
 
+    /* ---- Tab 3: Community Reviews (Rating, Comment) ---- */
     store = tree_store(state, state->citizenReviews);
     gtk_list_store_clear(store);
     for (i = 0; i < state->data->reviewCount; ++i) {
+        char ratingText[8];
+        snprintf(ratingText, sizeof(ratingText), "%d★",
+                 state->data->reviews[i].rating);
         gtk_list_store_append(store, &iter);
-        snprintf(value, sizeof(value), "%d", state->data->reviews[i].rating);
-        gtk_list_store_set(store, &iter, 0, value, 1,
-                           state->data->reviews[i].comment, -1);
+        gtk_list_store_set(store, &iter,
+                           0, ratingText,
+                           1, state->data->reviews[i].comment,
+                           -1);
     }
+
+    refresh_citizen_review_combo(state);
 }
 
 static void open_signup_clicked(GtkWidget *widget, gpointer user_data)
@@ -1817,6 +1940,7 @@ static void login_clicked(GtkWidget *widget, gpointer user_data)
             } else {
                 refresh_citizen_tables(state);
                 set_page(state, 3);
+                start_citizen_realtime_timer(state);
             }
             set_status(state, "Login successful");
             return;
@@ -2222,14 +2346,41 @@ static void reject_reservation_clicked(GtkWidget *widget, gpointer user_data)
 static void update_tariff(UiState *state)
 {
     int hours = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenHours)));
-    int serviceId = gtk_combo_box_get_active(GTK_COMBO_BOX(state->citizenService));
-    char message[128];
+    int comboIdx = gtk_combo_box_get_active(
+        GTK_COMBO_BOX(state->citizenService));
+    int serviceId = 0;
+    char message[160];
     double total;
-    if (serviceId >= 0) ++serviceId;
-    else serviceId = 0;
+    int activePos, i;
+
+    /* Map combo position (1-based, skipping index 0 = "No extra service")
+       to the actual service ID in the active services list. */
+    if (comboIdx > 0) {
+        activePos = 0;
+        for (i = 0; i < state->data->serviceCount; ++i) {
+            if (state->data->services[i].status == 1) {
+                ++activePos;
+                if (activePos == comboIdx) {
+                    serviceId = state->data->services[i].id;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (hours <= 0) hours = 1;
     total = citoyen_compute_billing(state->data, 1, serviceId, hours);
-    snprintf(message, sizeof(message), "Estimated tariff: %.2f TND", total);
-    gtk_label_set_text(GTK_LABEL(state->tariff), message);
+    snprintf(message, sizeof(message),
+             "Estimated Tariff: %.2f TND", total);
+    if (state->tariff != NULL) {
+        char markup[200];
+        gchar *escaped = g_markup_escape_text(message, -1);
+        snprintf(markup, sizeof(markup),
+                 "<span foreground='#287A4D' weight='bold'>%s</span>",
+                 escaped);
+        g_free(escaped);
+        gtk_label_set_markup(GTK_LABEL(state->tariff), markup);
+    }
 }
 
 static void tariff_changed(GtkWidget *widget, gpointer user_data)
@@ -2260,15 +2411,19 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
     int parkingId = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenParking)));
-    int spot = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenSpot)));
+    int spot = atoi(entry_placeholder_value(state->citizenSpot));
+    int serviceIdx;
+    int serviceId = 0;
     int i;
     int found = 0;
-    int full = 0;
+    int full  = 0;
+    const char *date;
+    const char *time;
     (void)widget;
+
     if (parkingId <= 0) {
         show_message(state, GTK_MESSAGE_ERROR, "No parking selected",
-                     "Enter a valid parking ID or select a parking from the table.");
-        set_status(state, "No parking selected");
+                     "Select a parking from the table first.");
         return;
     }
     for (i = 0; i < state->data->parkingCount; ++i) {
@@ -2280,56 +2435,81 @@ static void reserve_clicked(GtkWidget *widget, gpointer user_data)
     }
     if (!found) {
         show_message(state, GTK_MESSAGE_ERROR, "Parking not found",
-                     "The entered parking ID does not exist.");
+                     "The selected parking no longer exists.");
         return;
     }
     if (full) {
         show_message(state, GTK_MESSAGE_ERROR, "Parking is full",
-                     "This parking has no available spots. Choose another parking.");
-        set_status(state, "Parking is full");
+                     "This parking has no available spots. Choose another.");
         return;
     }
+
+    date = entry_placeholder_value(state->citizenDate);
+    time = entry_placeholder_value(state->citizenTime);
+    if (date[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Date required",
+                     "Enter a date in YYYY-MM-DD format.");
+        return;
+    }
+    if (time[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Time required",
+                     "Enter a time in HH:MM format.");
+        return;
+    }
+
+    /* Extra service: combo index 0 = none, 1+ = active services in order */
+    serviceIdx = gtk_combo_box_get_active(
+        GTK_COMBO_BOX(state->citizenService));
+    if (serviceIdx > 0) {
+        int activePos = 0;
+        for (i = 0; i < state->data->serviceCount; ++i) {
+            if (state->data->services[i].status == 1) {
+                ++activePos;
+                if (activePos == serviceIdx) {
+                    serviceId = state->data->services[i].id;
+                    break;
+                }
+            }
+        }
+    }
+
     if (citoyen_reserve_spot(state->data, state->activeUserId, parkingId,
-                             gtk_entry_get_text(GTK_ENTRY(state->citizenDate)),
-                             gtk_entry_get_text(GTK_ENTRY(state->citizenTime)),
-                             spot)) {
-        show_message(state, GTK_MESSAGE_INFO, "Reservation submitted",
-                     "Your parking spot reservation was submitted.");
-        gtk_entry_set_text(GTK_ENTRY(state->citizenSpot), "");
-        gtk_entry_set_text(GTK_ENTRY(state->citizenDate), "");
-        gtk_entry_set_text(GTK_ENTRY(state->citizenTime), "");
-        set_status(state, "Spot reservation submitted");
+                             date, time, spot)) {
+        /* Attach a service booking on top if one was selected */
+        if (serviceId > 0)
+            citoyen_book_service(state->data, state->activeUserId,
+                                 parkingId, serviceId);
+        show_message(state, GTK_MESSAGE_INFO, "Booking confirmed",
+                     "Your parking reservation was submitted.");
+        clear_entry_to_placeholder(state->citizenSpot);
+        clear_entry_to_placeholder(state->citizenDate);
+        clear_entry_to_placeholder(state->citizenTime);
+        gtk_combo_box_set_active(GTK_COMBO_BOX(state->citizenService), 0);
+        update_tariff(state);
     } else {
-        set_status(state, "Unable to reserve spot");
+        show_message(state, GTK_MESSAGE_ERROR, "Booking failed",
+                     "PARKY could not submit the reservation. Try again.");
     }
     refresh_citizen_tables(state);
     refresh_agent_tables(state);
+    refresh_admin_tables(state);
 }
 
 static void book_service_clicked(GtkWidget *widget, gpointer user_data)
+    __attribute__((unused));
+static void book_service_clicked(GtkWidget *widget, gpointer user_data)
 {
-    UiState *state = (UiState *)user_data;
-    int parkingId = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenParking)));
-    int serviceId = gtk_combo_box_get_active(GTK_COMBO_BOX(state->citizenService));
+    /* Unified into reserve_clicked; kept to avoid unused-symbol warnings
+       if any old signal connection references it. */
     (void)widget;
-    if (serviceId >= 0) ++serviceId;
-    else serviceId = 0;
-    if (citoyen_book_service(state->data, state->activeUserId,
-                             parkingId, serviceId)) {
-        show_message(state, GTK_MESSAGE_INFO, "Service booked",
-                     "Your parking service was submitted.");
-        set_status(state, "Service booking submitted");
-    } else {
-        set_status(state, "Unable to book service");
-    }
-    refresh_citizen_tables(state);
-    refresh_agent_tables(state);
+    (void)user_data;
 }
 
 static void review_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
-    int parkingId = atoi(gtk_entry_get_text(GTK_ENTRY(state->citizenParking)));
+    int parkingId = 0;
+    int active;
     int rating = gtk_spin_button_get_value_as_int(
         GTK_SPIN_BUTTON(state->reviewRating));
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(
@@ -2337,11 +2517,20 @@ static void review_clicked(GtkWidget *widget, gpointer user_data)
     GtkTextIter start, end;
     char *comment;
     (void)widget;
+
+    /* Derive parkingId from the parking dropdown */
+    if (state->reviewParkingCombo != NULL) {
+        active = gtk_combo_box_get_active(
+            GTK_COMBO_BOX(state->reviewParkingCombo));
+        if (active > 0 && active - 1 < state->data->parkingCount)
+            parkingId = state->data->parkings[active - 1].id;
+    }
+
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     comment = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
     if (parkingId <= 0) {
         show_message(state, GTK_MESSAGE_ERROR, "No parking selected",
-                     "Enter the parking ID you want to review.");
+                     "Choose a parking from the dropdown before submitting.");
         g_free(comment);
         return;
     }
@@ -2357,9 +2546,9 @@ static void review_clicked(GtkWidget *widget, gpointer user_data)
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(state->reviewRating), 5);
         show_message(state, GTK_MESSAGE_INFO, "Review submitted",
                      "Thank you. Your review was saved.");
-        set_status(state, "Review submitted");
     } else {
-        set_status(state, "Unable to submit review");
+        show_message(state, GTK_MESSAGE_ERROR, "Review failed",
+                     "PARKY could not save the review.");
     }
     refresh_citizen_tables(state);
     g_free(comment);
@@ -2369,7 +2558,7 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
 {
     UiState *state = (UiState *)user_data;
     const char *subject =
-        gtk_entry_get_text(GTK_ENTRY(state->complaintSubject));
+        entry_placeholder_value(state->complaintSubject);
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(
         GTK_TEXT_VIEW(state->complaintText));
     GtkTextIter start, end;
@@ -2377,15 +2566,27 @@ static void complaint_clicked(GtkWidget *widget, gpointer user_data)
     (void)widget;
     gtk_text_buffer_get_bounds(buffer, &start, &end);
     text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+    if (subject == NULL || subject[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Missing subject",
+                     "Enter a short subject describing the complaint.");
+        g_free(text);
+        return;
+    }
+    if (text == NULL || text[0] == '\0') {
+        show_message(state, GTK_MESSAGE_ERROR, "Missing description",
+                     "Describe the issue before submitting.");
+        g_free(text);
+        return;
+    }
     if (citoyen_submit_complaint(state->data, state->activeUserId,
                                  subject, text)) {
-        gtk_entry_set_text(GTK_ENTRY(state->complaintSubject), "");
+        clear_entry_to_placeholder(state->complaintSubject);
         gtk_text_buffer_set_text(buffer, "", 0);
         show_message(state, GTK_MESSAGE_INFO, "Complaint submitted",
                      "Your complaint was saved.");
-        set_status(state, "Complaint submitted");
     } else {
-        set_status(state, "Unable to submit complaint");
+        show_message(state, GTK_MESSAGE_ERROR, "Complaint failed",
+                     "PARKY could not save the complaint.");
     }
     refresh_admin_tables(state);
     g_free(text);
@@ -3759,241 +3960,620 @@ static GtkWidget *agent_view(UiState *state)
     return root;
 }
 
+/* ---- Citizen real-time helpers ---- */
+
+static gboolean on_citizen_realtime_tick(gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    int i;
+    int isCitizen = 0;
+
+    if (state == NULL || state->activeUserId <= 0 ||
+        state->notebook == NULL) {
+        if (state != NULL)
+            state->citizenRefreshTimerId = 0;
+        return FALSE;
+    }
+    for (i = 0; i < state->data->userCount; ++i) {
+        if (state->data->users[i].id == state->activeUserId) {
+            isCitizen = (state->data->users[i].role == USER_CITIZEN);
+            break;
+        }
+    }
+    if (!isCitizen) {
+        state->citizenRefreshTimerId = 0;
+        return FALSE;
+    }
+    /* Only reload while the Citizen dashboard is active */
+    if (gtk_notebook_get_current_page(
+            GTK_NOTEBOOK(state->notebook)) == 3 &&
+        storage_load(state->data))
+        refresh_citizen_tables(state);
+    return TRUE;
+}
+
+static void start_citizen_realtime_timer(UiState *state)
+{
+    stop_citizen_realtime_timer(state);
+    if (state != NULL)
+        state->citizenRefreshTimerId =
+            g_timeout_add(2000, on_citizen_realtime_tick, state);
+}
+
+static void stop_citizen_realtime_timer(UiState *state)
+{
+    if (state != NULL && state->citizenRefreshTimerId != 0) {
+        g_source_remove(state->citizenRefreshTimerId);
+        state->citizenRefreshTimerId = 0;
+    }
+}
+
+/* Called when the user clicks a row in the Available Parkings table.
+   Sets citizenParking (hidden entry) and updates the booking card label. */
+static void citizen_parking_row_selected(GtkTreeSelection *selection,
+                                         gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    gchar *idText  = NULL;
+    gchar *nameText = NULL;
+    int parkingId;
+    int i;
+    char labelMarkup[256];
+
+    if (!gtk_tree_selection_get_selected(selection, &model, &iter))
+        return;
+    gtk_tree_model_get(model, &iter, 0, &idText, 1, &nameText, -1);
+    parkingId = idText != NULL ? atoi(idText) : 0;
+    g_free(idText);
+
+    /* Store the ID in the hidden entry so reserve_clicked can read it */
+    if (state->citizenParking != NULL) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%d", parkingId);
+        gtk_entry_set_text(GTK_ENTRY(state->citizenParking), buf);
+    }
+
+    /* Update the "Selected:" label in the booking card */
+    if (state->citizenSelectedLabel != NULL) {
+        if (nameText != NULL && nameText[0] != '\0') {
+            gchar *escaped = g_markup_escape_text(nameText, -1);
+            snprintf(labelMarkup, sizeof(labelMarkup),
+                     "<span foreground='#1B2A4A' weight='bold'>%s</span>",
+                     escaped);
+            g_free(escaped);
+        } else {
+            snprintf(labelMarkup, sizeof(labelMarkup),
+                     "<span foreground='#8A94A6'>No parking selected</span>");
+        }
+        gtk_label_set_markup(GTK_LABEL(state->citizenSelectedLabel),
+                             labelMarkup);
+    }
+    g_free(nameText);
+
+    /* Refresh the Extra Service combo for the newly selected parking */
+    if (state->citizenService != NULL) {
+        int active = gtk_combo_box_get_active(
+            GTK_COMBO_BOX(state->citizenService));
+        gtk_list_store_clear(GTK_LIST_STORE(
+            gtk_combo_box_get_model(
+                GTK_COMBO_BOX(state->citizenService))));
+        gtk_combo_box_append_text(GTK_COMBO_BOX(state->citizenService),
+                                  "No extra service");
+        for (i = 0; i < state->data->serviceCount; ++i) {
+            if (state->data->services[i].status == 1) {
+                char svcLabel[PARKY_NAME_LENGTH + 20];
+                char displayName[PARKY_NAME_LENGTH];
+                /* Translate storage underscores to spaces */
+                int k;
+                for (k = 0; state->data->services[i].name[k] != '\0' &&
+                            k < PARKY_NAME_LENGTH - 1; ++k) {
+                    displayName[k] =
+                        state->data->services[i].name[k] == '_' ?
+                        ' ' : state->data->services[i].name[k];
+                }
+                displayName[k] = '\0';
+                snprintf(svcLabel, sizeof(svcLabel), "%s (%.2f TND)",
+                         displayName,
+                         (double)state->data->services[i].price);
+                gtk_combo_box_append_text(
+                    GTK_COMBO_BOX(state->citizenService), svcLabel);
+            }
+        }
+        gtk_combo_box_set_active(GTK_COMBO_BOX(state->citizenService),
+                                 active > 0 ? active : 0);
+    }
+    update_tariff(state);
+}
+
+/* Cancel Reservation button handler */
+static void cancel_reservation_clicked(GtkWidget *widget,
+                                        gpointer user_data)
+{
+    UiState *state = (UiState *)user_data;
+    GtkWidget *resTree;
+    GtkTreeSelection *sel;
+    GtkTreeModel *model;
+    GtkTreeIter iter;
+    gchar *txt = NULL;
+    int resId = 0;
+    int i, index = -1;
+    (void)widget;
+
+    resTree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(state->citizenReservations))));
+    sel   = gtk_tree_view_get_selection(GTK_TREE_VIEW(resTree));
+    model = gtk_tree_view_get_model(GTK_TREE_VIEW(resTree));
+    if (!gtk_tree_selection_get_selected(sel, &model, &iter)) {
+        show_message(state, GTK_MESSAGE_WARNING, "No reservation selected",
+                     "Select a reservation from the list first.");
+        return;
+    }
+    gtk_tree_model_get(model, &iter, 0, &txt, -1);
+    resId = txt != NULL ? atoi(txt) : 0;
+    g_free(txt);
+    if (resId <= 0)
+        return;
+
+    /* Only allow cancellation of Pending reservations */
+    for (i = 0; i < state->data->reservationCount; ++i) {
+        if (state->data->reservations[i].id == resId) {
+            if (state->data->reservations[i].status != RESERVATION_PENDING) {
+                show_message(state, GTK_MESSAGE_INFO,
+                             "Cannot cancel",
+                             "Only pending reservations can be cancelled.");
+                return;
+            }
+            index = i;
+            break;
+        }
+    }
+    if (index < 0)
+        return;
+
+    if (show_dialog(NULL, GTK_MESSAGE_WARNING,
+                    "Confirm cancel",
+                    "Cancel this reservation? This action cannot be undone.")
+            != GTK_RESPONSE_YES)
+        return;
+
+    /* Remove the reservation */
+    for (i = index; i < state->data->reservationCount - 1; ++i)
+        state->data->reservations[i] = state->data->reservations[i + 1];
+    --state->data->reservationCount;
+
+    if (storage_save(state->data)) {
+        show_message(state, GTK_MESSAGE_INFO, "Reservation cancelled",
+                     "Your reservation was cancelled.");
+        refresh_citizen_tables(state);
+        refresh_admin_tables(state);
+        refresh_agent_tables(state);
+    }
+}
+
 static GtkWidget *citizen_view(UiState *state)
 {
-    GtkWidget *box = gtk_vbox_new(FALSE, 8);
+    /* ---- outer shell ---- */
+    GtkWidget *box   = gtk_vbox_new(FALSE, 0);
     GtkWidget *inner = gtk_notebook_new();
-    GtkWidget *findTab = gtk_vbox_new(FALSE, 8);
-    GtkWidget *filters = gtk_hbox_new(FALSE, 8);
-    GtkWidget *bookingSplit = gtk_hpaned_new();
-    GtkWidget *parkingSide = gtk_vbox_new(FALSE, 6);
-    GtkWidget *bookingSide = gtk_vbox_new(FALSE, 6);
-    GtkWidget *reservationsTab = gtk_vbox_new(FALSE, 8);
-    GtkWidget *feedbackTab = gtk_hbox_new(TRUE, 8);
-    GtkWidget *profileTab = gtk_vbox_new(FALSE, 12);
-    GtkWidget *reviewSide = gtk_vbox_new(FALSE, 8);
-    GtkWidget *complaintSide = gtk_vbox_new(FALSE, 8);
-    GtkWidget *search = make_stock_button("Search", GTK_STOCK_FIND);
-    GtkWidget *reserve = make_stock_button(
-        "Reserve spot", GTK_STOCK_ADD);
-    GtkWidget *book = make_stock_button(
-        "Book service", GTK_STOCK_APPLY);
-    GtkWidget *review = make_stock_button(
-        "Submit review", GTK_STOCK_EDIT);
-    GtkWidget *complaint = make_stock_button(
-        "Submit complaint", GTK_STOCK_DIALOG_AUTHENTICATION);
-    GtkAdjustment *adjustment;
-    GtkWidget *scroller;
+    GtkWidget *tabLabel;
+
+    /* ---- Tab 1: Find & Book ---- */
+    GtkWidget *findTab    = gtk_vbox_new(FALSE, 6);
+    GtkWidget *filterBar  = gtk_hbox_new(FALSE, 8);
+    GtkWidget *splitPane  = gtk_hpaned_new();
+    GtkWidget *leftSide   = gtk_vbox_new(FALSE, 4);
+    GtkWidget *bookCard;        /* 290px right panel */
+    GtkWidget *bookCardBox = gtk_vbox_new(FALSE, 8);
+
+    /* Booking card widgets */
+    GtkWidget *bookTitle     = gtk_label_new(NULL);
+    GtkWidget *selectedLabel = gtk_label_new(NULL);
+    GtkWidget *confirmBtn;
+
+    /* ---- Tab 2: My Reservations ---- */
+    GtkWidget *resTab  = gtk_vbox_new(FALSE, 6);
+    GtkWidget *resActBar;
+    GtkWidget *cancelBtn;
+
+    /* ---- Tab 3: Reviews & Complaints ---- */
+    GtkWidget *feedTab      = gtk_hbox_new(FALSE, 8);
+    GtkWidget *reviewCard;
+    GtkWidget *reviewCardBox = gtk_vbox_new(FALSE, 8);
+    GtkWidget *reviewTitle   = gtk_label_new(NULL);
+    GtkWidget *reviewBtn;
+    GtkWidget *complaintCard;
+    GtkWidget *complaintCardBox = gtk_vbox_new(FALSE, 8);
+    GtkWidget *complaintTitle   = gtk_label_new(NULL);
+    GtkWidget *complaintBtn;
+    GtkWidget *communityReviews;
+
     GtkListStore *store;
-    const char *parkingTitles[] = {"ID", "Name", "Address", "Available"};
-    const char *reservationTitles[] = {"ID", "Date", "Time", "Status"};
+    GtkWidget    *tree;
+    GtkTreeSelection *selection;
+    GtkAdjustment *ratingAdj;
+    GdkColor white, slate;
+    GtkWidget *scroller;
+
+    /* Column title arrays */
+    const char *parkingTitles[] = {
+        "ID", "Name", "Address / Zone", "Available", "Hourly Rate"
+    };
+    const char *resTitles[] = {
+        "ID", "Parking", "Spot", "Date", "Time", "Total (TND)", "Status"
+    };
     const char *reviewTitles[] = {"Rating", "Comment"};
 
-    gtk_container_set_border_width(GTK_CONTAINER(box), 12);
-    style_button(search, "#F2A900", "#1B2A4A");
-    style_button(reserve, "#287A4D", "#FFFFFF");
-    style_button(book, "#287A4D", "#FFFFFF");
-    style_button(review, "#1F5FBF", "#FFFFFF");
-    style_button(complaint, "#B33A3A", "#FFFFFF");
+    gdk_color_parse("#FFFFFF", &white);
+    gdk_color_parse("#C5D3E6", &slate);
+
+    gtk_container_set_border_width(GTK_CONTAINER(box), 0);
+
+    /* ================================================================
+       HEADER
+       ================================================================ */
     gtk_box_pack_start(GTK_BOX(box),
                        make_dashboard_header(state, "CITIZEN"),
-                       FALSE, FALSE, 4);
+                       FALSE, FALSE, 0);
 
-    gtk_box_pack_start(GTK_BOX(filters),
+    /* ================================================================
+       TAB 1 — FIND & BOOK
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(findTab), 8);
+
+    /* Filter bar */
+    gtk_box_pack_start(GTK_BOX(filterBar),
                        make_labeled_entry("Parking name",
                                           &state->citizenName),
                        TRUE, TRUE, 2);
-    gtk_box_pack_start(GTK_BOX(filters),
+    gtk_box_pack_start(GTK_BOX(filterBar),
                        make_labeled_entry("Address",
                                           &state->citizenAddress),
                        TRUE, TRUE, 2);
-    state->citizenAvailable = gtk_check_button_new_with_label(
-        "Only show available parkings");
-    gtk_box_pack_start(GTK_BOX(filters), state->citizenAvailable,
-                       FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(filters), search, FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(findTab), filters, FALSE, FALSE, 4);
+    state->citizenAvailable =
+        gtk_check_button_new_with_label("Only available");
+    gtk_box_pack_start(GTK_BOX(filterBar), state->citizenAvailable,
+                       FALSE, FALSE, 2);
+    {
+        GtkWidget *searchBtn = make_admin_action_button(
+            "Search", GTK_STOCK_FIND, "#F2A900", "#D97706", "#1B2A4A");
+        gtk_widget_set_size_request(searchBtn, 100, 34);
+        g_signal_connect(searchBtn, "clicked",
+                         G_CALLBACK(search_clicked), state);
+        gtk_box_pack_start(GTK_BOX(filterBar), searchBtn,
+                           FALSE, FALSE, 2);
+    }
+    gtk_box_pack_start(GTK_BOX(findTab), filterBar, FALSE, FALSE, 2);
 
+    /* Left: Available Parkings table (ID hidden col 0) */
     state->citizenParkings =
-        make_tree_view("Available Parkings", &store, parkingTitles, 4);
-    gtk_box_pack_start(GTK_BOX(parkingSide), state->citizenParkings,
-                       TRUE, TRUE, 4);
+        make_tree_view("Available Parkings", &store, parkingTitles, 5);
+    gtk_widget_set_size_request(state->citizenParkings, -1, 300);
+    gtk_box_pack_start(GTK_BOX(leftSide), state->citizenParkings,
+                       TRUE, TRUE, 0);
 
-    gtk_box_pack_start(GTK_BOX(bookingSide),
-                       make_labeled_entry("Parking ID",
-                                          &state->citizenParking),
+    /* Right: booking card — 290 px */
+    gtk_container_set_border_width(GTK_CONTAINER(bookCardBox), 12);
+
+    gtk_label_set_markup(GTK_LABEL(bookTitle),
+        "<span foreground='#1B2A4A' size='large' weight='bold'>"
+        "Book a Spot</span>");
+    gtk_misc_set_alignment(GTK_MISC(bookTitle), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(bookCardBox), bookTitle, FALSE, FALSE, 2);
+
+    /* Selected parking display */
+    gtk_label_set_markup(GTK_LABEL(selectedLabel),
+        "<span foreground='#8A94A6'>No parking selected</span>");
+    gtk_misc_set_alignment(GTK_MISC(selectedLabel), 0.0, 0.5);
+    gtk_label_set_line_wrap(GTK_LABEL(selectedLabel), TRUE);
+    gtk_widget_set_size_request(selectedLabel, 250, -1);
+    gtk_box_pack_start(GTK_BOX(bookCardBox), selectedLabel,
                        FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(bookingSide),
-                       make_labeled_entry("Spot number",
-                                          &state->citizenSpot),
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(bookingSide),
-                       make_labeled_entry("Date",
-                                          &state->citizenDate),
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(bookingSide),
-                       make_labeled_entry("Time",
-                                          &state->citizenTime),
+    state->citizenSelectedLabel = selectedLabel;
+
+    /* Hidden GtkEntry for parking ID — never shown, just carries the value */
+    state->citizenParking = gtk_entry_new();
+    gtk_widget_set_no_show_all(state->citizenParking, TRUE);
+
+    /* Hidden GtkEntry for hours — always "1", drives tariff calc */
+    state->citizenHours = gtk_entry_new();
+    gtk_entry_set_text(GTK_ENTRY(state->citizenHours), "1");
+    gtk_widget_set_no_show_all(state->citizenHours, TRUE);
+
+    /* Spot Number */
+    gtk_box_pack_start(GTK_BOX(bookCardBox),
+                       admin_panel_entry_row(GTK_STOCK_INDEX,
+                                             "Spot Number (optional)",
+                                             &state->citizenSpot),
                        FALSE, FALSE, 2);
 
+    /* Date */
+    gtk_box_pack_start(GTK_BOX(bookCardBox),
+                       admin_panel_entry_row(GTK_STOCK_JUMP_TO,
+                                             "Date (YYYY-MM-DD)",
+                                             &state->citizenDate),
+                       FALSE, FALSE, 2);
+
+    /* Time */
+    gtk_box_pack_start(GTK_BOX(bookCardBox),
+                       admin_panel_entry_row(GTK_STOCK_EXECUTE,
+                                             "Time (HH:MM)",
+                                             &state->citizenTime),
+                       FALSE, FALSE, 2);
+
+    /* Extra service combo — populated dynamically on row-select */
+    {
+        GtkWidget *svcLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(svcLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Extra Service</span>");
+        gtk_misc_set_alignment(GTK_MISC(svcLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(bookCardBox), svcLbl, FALSE, FALSE, 2);
+    }
     state->citizenService = gtk_combo_box_new_text();
-    gtk_widget_set_size_request(state->citizenService, -1, 32);
     gtk_combo_box_append_text(GTK_COMBO_BOX(state->citizenService),
                               "No extra service");
-    gtk_combo_box_append_text(GTK_COMBO_BOX(state->citizenService),
-                              "Car Wash");
     gtk_combo_box_set_active(GTK_COMBO_BOX(state->citizenService), 0);
-    gtk_box_pack_start(GTK_BOX(bookingSide),
-                       make_labeled_entry("Service",
-                                          &state->citizenHours),
+    gtk_widget_set_size_request(state->citizenService, -1, 32);
+    gtk_box_pack_start(GTK_BOX(bookCardBox), state->citizenService,
                        FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(bookingSide), state->citizenService,
-                       FALSE, FALSE, 2);
-    gtk_entry_set_text(GTK_ENTRY(state->citizenHours), "1");
 
-    state->tariff = gtk_label_new("Estimated tariff: 2.00 TND");
-    gtk_box_pack_start(GTK_BOX(bookingSide), state->tariff,
+    /* Live tariff label */
+    state->tariff = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(state->tariff),
+        "<span foreground='#287A4D' weight='bold'>"
+        "Estimated Tariff: 2.00 TND</span>");
+    gtk_misc_set_alignment(GTK_MISC(state->tariff), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(bookCardBox), state->tariff,
                        FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(bookingSide), reserve, FALSE, FALSE, 4);
-    gtk_box_pack_start(GTK_BOX(bookingSide), book, FALSE, FALSE, 4);
 
-    gtk_paned_pack1(GTK_PANED(bookingSplit), parkingSide,
-                    TRUE, FALSE);
-    gtk_paned_pack2(GTK_PANED(bookingSplit), bookingSide,
-                    FALSE, FALSE);
-    gtk_paned_set_position(GTK_PANED(bookingSplit), 620);
-    gtk_box_pack_start(GTK_BOX(findTab), bookingSplit, TRUE, TRUE, 4);
+    /* Confirm Booking button */
+    confirmBtn = make_admin_action_button(
+        "Confirm Booking", GTK_STOCK_APPLY,
+        "#287A4D", "#1A5C38", "#FFFFFF");
+    gtk_widget_set_size_request(confirmBtn, -1, 40);
+    gtk_box_pack_start(GTK_BOX(bookCardBox), confirmBtn,
+                       FALSE, FALSE, 6);
+
+    bookCard = make_admin_panel_card(bookCardBox, 290);
+    gtk_paned_pack1(GTK_PANED(splitPane), leftSide,  TRUE,  FALSE);
+    gtk_paned_pack2(GTK_PANED(splitPane), bookCard,  FALSE, FALSE);
+    gtk_paned_set_position(GTK_PANED(splitPane), 840);
+    gtk_box_pack_start(GTK_BOX(findTab), splitPane, TRUE, TRUE, 4);
+
+    /* Connect Available Parkings row-selection */
+    tree = gtk_bin_get_child(GTK_BIN(
+        gtk_bin_get_child(GTK_BIN(state->citizenParkings))));
+    selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(tree));
+    g_signal_connect(selection, "changed",
+                     G_CALLBACK(citizen_parking_row_selected), state);
+
+    /* ================================================================
+       TAB 2 — MY RESERVATIONS
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(resTab), 8);
 
     state->citizenReservations =
-        make_tree_view("My Reservations", &store,
-                       reservationTitles, 4);
-    gtk_box_pack_start(GTK_BOX(reservationsTab),
-                       state->citizenReservations, TRUE, TRUE, 8);
+        make_tree_view_markup("My Reservations", &store,
+                              resTitles, 7, 6);
+    gtk_widget_set_size_request(state->citizenReservations, -1, 340);
+    gtk_box_pack_start(GTK_BOX(resTab), state->citizenReservations,
+                       TRUE, TRUE, 0);
 
-    adjustment = GTK_ADJUSTMENT(
-        gtk_adjustment_new(5, 1, 5, 1, 1, 0));
-    state->reviewRating = gtk_spin_button_new(
-        GTK_ADJUSTMENT(adjustment), 1, 0);
+    /* Cancel action bar */
+    resActBar  = gtk_hbox_new(FALSE, 8);
+    cancelBtn  = make_admin_action_button(
+        "Cancel Reservation", GTK_STOCK_CANCEL,
+        "#B33A3A", "#8B2929", "#FFFFFF");
+    gtk_widget_set_size_request(cancelBtn, 200, 36);
+    state->citizenCancelBtn = cancelBtn;
+    {
+        GtkWidget *resActAlign = gtk_alignment_new(0.0, 0.5, 0.0, 0.0);
+        gtk_container_add(GTK_CONTAINER(resActAlign), cancelBtn);
+        gtk_box_pack_start(GTK_BOX(resActBar), resActAlign,
+                           FALSE, FALSE, 0);
+        {
+            GtkWidget *hint = gtk_label_new(NULL);
+            gtk_label_set_markup(GTK_LABEL(hint),
+                "<span foreground='#475569' size='small'>"
+                "Only pending reservations can be cancelled."
+                "</span>");
+            gtk_box_pack_start(GTK_BOX(resActBar), hint,
+                               FALSE, FALSE, 8);
+        }
+    }
+    gtk_box_pack_start(GTK_BOX(resTab), resActBar, FALSE, FALSE, 4);
+
+    /* ================================================================
+       TAB 3 — REVIEWS & COMPLAINTS
+       ================================================================ */
+    gtk_container_set_border_width(GTK_CONTAINER(feedTab), 8);
+
+    /* -- Submit Review card -- */
+    gtk_container_set_border_width(GTK_CONTAINER(reviewCardBox), 12);
+    gtk_label_set_markup(GTK_LABEL(reviewTitle),
+        "<span foreground='#1B2A4A' size='large' weight='bold'>"
+        "Submit a Review</span>");
+    gtk_misc_set_alignment(GTK_MISC(reviewTitle), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(reviewCardBox), reviewTitle,
+                       FALSE, FALSE, 2);
+
+    /* Parking dropdown replacing raw ID */
+    {
+        GtkWidget *pickLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(pickLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Select Parking</span>");
+        gtk_misc_set_alignment(GTK_MISC(pickLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(reviewCardBox), pickLbl,
+                           FALSE, FALSE, 2);
+    }
+    state->reviewParkingCombo = gtk_combo_box_new_text();
+    gtk_combo_box_append_text(GTK_COMBO_BOX(state->reviewParkingCombo),
+                              "Select a parking...");
+    {
+        int pi;
+        for (pi = 0; pi < state->data->parkingCount; ++pi)
+            gtk_combo_box_append_text(
+                GTK_COMBO_BOX(state->reviewParkingCombo),
+                state->data->parkings[pi].name);
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(state->reviewParkingCombo), 0);
+    gtk_widget_set_size_request(state->reviewParkingCombo, -1, 32);
+    gtk_box_pack_start(GTK_BOX(reviewCardBox), state->reviewParkingCombo,
+                       FALSE, FALSE, 2);
+
+    /* Rating spin */
+    {
+        GtkWidget *ratLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(ratLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Rating (1–5)</span>");
+        gtk_misc_set_alignment(GTK_MISC(ratLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(reviewCardBox), ratLbl,
+                           FALSE, FALSE, 2);
+    }
+    ratingAdj = GTK_ADJUSTMENT(gtk_adjustment_new(5, 1, 5, 1, 1, 0));
+    state->reviewRating = gtk_spin_button_new(ratingAdj, 1, 0);
+    gtk_widget_set_size_request(state->reviewRating, -1, 32);
+    gtk_box_pack_start(GTK_BOX(reviewCardBox), state->reviewRating,
+                       FALSE, FALSE, 2);
+
+    /* Comment text area */
+    {
+        GtkWidget *comLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(comLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Comment</span>");
+        gtk_misc_set_alignment(GTK_MISC(comLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(reviewCardBox), comLbl,
+                           FALSE, FALSE, 2);
+    }
     state->reviewComment = gtk_text_view_new();
-    gtk_box_pack_start(GTK_BOX(reviewSide),
-                       make_labeled_entry("Parking ID",
-                                          &state->citizenParking),
-                       FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(reviewSide),
-                       gtk_label_new("Rating"), FALSE, FALSE, 2);
-    gtk_box_pack_start(GTK_BOX(reviewSide),
-                       state->reviewRating, FALSE, FALSE, 2);
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(state->reviewComment),
+                                GTK_WRAP_WORD);
+    gtk_widget_modify_base(state->reviewComment, GTK_STATE_NORMAL, &white);
     scroller = gtk_scrolled_window_new(NULL, NULL);
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
                                    GTK_POLICY_AUTOMATIC,
                                    GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(scroller, -1, 120);
     gtk_container_add(GTK_CONTAINER(scroller), state->reviewComment);
-    gtk_box_pack_start(GTK_BOX(reviewSide), scroller, TRUE, TRUE, 4);
-    gtk_box_pack_start(GTK_BOX(reviewSide), review, FALSE, FALSE, 4);
+    gtk_frame_set_shadow_type(GTK_FRAME(
+        gtk_frame_new(NULL)), GTK_SHADOW_IN);
+    gtk_box_pack_start(GTK_BOX(reviewCardBox), scroller,
+                       TRUE, TRUE, 2);
 
-    gtk_box_pack_start(GTK_BOX(complaintSide),
-                       make_labeled_entry("Complaint subject",
-                                          &state->complaintSubject),
+    reviewBtn = make_admin_action_button(
+        "Submit Review", GTK_STOCK_EDIT,
+        "#1F5FBF", "#174AA0", "#FFFFFF");
+    gtk_widget_set_size_request(reviewBtn, -1, 36);
+    {
+        GtkWidget *revAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+        gtk_container_add(GTK_CONTAINER(revAlign), reviewBtn);
+        gtk_box_pack_start(GTK_BOX(reviewCardBox), revAlign,
+                           FALSE, FALSE, 6);
+    }
+    reviewCard = make_admin_panel_card(reviewCardBox, 260);
+    gtk_box_pack_start(GTK_BOX(feedTab), reviewCard, FALSE, FALSE, 0);
+
+    /* -- Submit Complaint card -- */
+    gtk_container_set_border_width(GTK_CONTAINER(complaintCardBox), 12);
+    gtk_label_set_markup(GTK_LABEL(complaintTitle),
+        "<span foreground='#1B2A4A' size='large' weight='bold'>"
+        "Report a Complaint</span>");
+    gtk_misc_set_alignment(GTK_MISC(complaintTitle), 0.0, 0.5);
+    gtk_box_pack_start(GTK_BOX(complaintCardBox), complaintTitle,
                        FALSE, FALSE, 2);
-    state->complaintText = gtk_text_view_new();
-    scroller = gtk_scrolled_window_new(NULL, NULL);
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
-                                   GTK_POLICY_AUTOMATIC,
-                                   GTK_POLICY_AUTOMATIC);
-    gtk_container_add(GTK_CONTAINER(scroller), state->complaintText);
-    gtk_box_pack_start(GTK_BOX(complaintSide), scroller,
-                       TRUE, TRUE, 4);
-    gtk_box_pack_start(GTK_BOX(complaintSide), complaint,
-                       FALSE, FALSE, 4);
 
-    gtk_box_pack_start(GTK_BOX(feedbackTab), reviewSide, TRUE, TRUE, 8);
-    gtk_box_pack_start(GTK_BOX(feedbackTab), complaintSide, TRUE, TRUE, 8);
-
-    state->citizenReviews =
-        make_tree_view("Reviews", &store, reviewTitles, 2);
-    gtk_box_pack_start(GTK_BOX(feedbackTab), state->citizenReviews,
-                       TRUE, TRUE, 8);
+    gtk_box_pack_start(GTK_BOX(complaintCardBox),
+                       admin_panel_entry_row(GTK_STOCK_DIALOG_WARNING,
+                                             "Subject",
+                                             &state->complaintSubject),
+                       FALSE, FALSE, 2);
 
     {
-        GtkWidget *profileCard = gtk_frame_new("Citizen Profile");
-        GtkWidget *profileBox = gtk_vbox_new(FALSE, 8);
-        GtkWidget *photoBox = gtk_hbox_new(FALSE, 12);
-        GtkWidget *photoButton = make_stock_button(
-            "Choose Profile Photo", GTK_STOCK_OPEN);
-        GtkWidget *profileName = gtk_label_new(NULL);
-        GtkWidget *profileEmail = gtk_label_new(NULL);
-        GtkWidget *profileRole = gtk_label_new(NULL);
-        char profileText[256];
-        int i;
-        const char *name = "Unknown";
-        const char *email = "Unknown";
-
-        for (i = 0; i < state->data->userCount; ++i) {
-            if (state->data->users[i].id == state->activeUserId) {
-                name = state->data->users[i].name;
-                email = state->data->users[i].email;
-                break;
-            }
-        }
-        snprintf(profileText, sizeof(profileText),
-                 "<span size='x-large' weight='bold'>%s</span>", name);
-        gtk_label_set_markup(GTK_LABEL(profileName), profileText);
-        snprintf(profileText, sizeof(profileText),
-                 "<span>Email: %s</span>", email);
-        gtk_label_set_markup(GTK_LABEL(profileEmail), profileText);
-        gtk_label_set_markup(GTK_LABEL(profileRole),
-            "<span background='#287A4D' foreground='white' "
-            "weight='bold'>  CITIZEN  </span>");
-        state->profileImage = gtk_image_new_from_stock(
-            GTK_STOCK_DIALOG_AUTHENTICATION, GTK_ICON_SIZE_DIALOG);
-        gtk_widget_set_size_request(state->profileImage, 96, 96);
-        load_profile_image(state);
-        gtk_box_pack_start(GTK_BOX(photoBox), state->profileImage,
-                           FALSE, FALSE, 8);
-        gtk_box_pack_start(GTK_BOX(profileBox), photoBox,
-                           FALSE, FALSE, 8);
-        gtk_box_pack_start(GTK_BOX(profileBox), profileName,
-                           FALSE, FALSE, 8);
-        gtk_box_pack_start(GTK_BOX(profileBox), profileEmail,
-                           FALSE, FALSE, 4);
-        gtk_box_pack_start(GTK_BOX(profileBox), profileRole,
-                           FALSE, FALSE, 4);
-        style_button(photoButton, "#1F5FBF", "#FFFFFF");
-        gtk_box_pack_start(GTK_BOX(profileBox), photoButton,
-                           FALSE, FALSE, 8);
-        g_signal_connect(photoButton, "clicked",
-                         G_CALLBACK(choose_profile_photo_clicked), state);
-        gtk_container_set_border_width(GTK_CONTAINER(profileCard), 12);
-        gtk_container_add(GTK_CONTAINER(profileCard), profileBox);
-        gtk_box_pack_start(GTK_BOX(profileTab), profileCard,
-                           FALSE, FALSE, 20);
+        GtkWidget *descLbl = gtk_label_new(NULL);
+        gtk_label_set_markup(GTK_LABEL(descLbl),
+            "<span foreground='#475569' size='small'"
+            " weight='bold'>Description</span>");
+        gtk_misc_set_alignment(GTK_MISC(descLbl), 0.0, 0.5);
+        gtk_box_pack_start(GTK_BOX(complaintCardBox), descLbl,
+                           FALSE, FALSE, 2);
+    }
+    state->complaintText = gtk_text_view_new();
+    gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(state->complaintText),
+                                GTK_WRAP_WORD);
+    gtk_widget_modify_base(state->complaintText, GTK_STATE_NORMAL, &white);
+    {
+        GtkWidget *cmpScroller = gtk_scrolled_window_new(NULL, NULL);
+        gtk_scrolled_window_set_policy(
+            GTK_SCROLLED_WINDOW(cmpScroller),
+            GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+        gtk_widget_set_size_request(cmpScroller, -1, 120);
+        gtk_container_add(GTK_CONTAINER(cmpScroller),
+                          state->complaintText);
+        gtk_box_pack_start(GTK_BOX(complaintCardBox), cmpScroller,
+                           TRUE, TRUE, 2);
     }
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(inner), findTab,
-                             make_stock_tab("Find & Book Parking",
-                                            GTK_STOCK_FIND));
-    gtk_notebook_append_page(GTK_NOTEBOOK(inner), reservationsTab,
-                             make_stock_tab("My Reservations & Bills",
-                                            GTK_STOCK_APPLY));
-    gtk_notebook_append_page(GTK_NOTEBOOK(inner), feedbackTab,
-                             make_stock_tab("Reviews & Complaints",
-                                            GTK_STOCK_EDIT));
-    gtk_notebook_append_page(GTK_NOTEBOOK(inner), profileTab,
-                             make_stock_tab("My Profile",
-                                            GTK_STOCK_DIALOG_AUTHENTICATION));
-    gtk_box_pack_start(GTK_BOX(box), inner, TRUE, TRUE, 4);
+    complaintBtn = make_admin_action_button(
+        "Submit Complaint", GTK_STOCK_DIALOG_WARNING,
+        "#B33A3A", "#8B2929", "#FFFFFF");
+    gtk_widget_set_size_request(complaintBtn, -1, 36);
+    {
+        GtkWidget *cmpAlign = gtk_alignment_new(0.5, 0.5, 0.0, 0.0);
+        gtk_container_add(GTK_CONTAINER(cmpAlign), complaintBtn);
+        gtk_box_pack_start(GTK_BOX(complaintCardBox), cmpAlign,
+                           FALSE, FALSE, 6);
+    }
+    complaintCard = make_admin_panel_card(complaintCardBox, 260);
+    gtk_box_pack_start(GTK_BOX(feedTab), complaintCard, FALSE, FALSE, 0);
 
-    g_signal_connect(search, "clicked", G_CALLBACK(search_clicked), state);
-    g_signal_connect(reserve, "clicked", G_CALLBACK(reserve_clicked), state);
-    g_signal_connect(book, "clicked",
-                     G_CALLBACK(book_service_clicked), state);
-    g_signal_connect(review, "clicked", G_CALLBACK(review_clicked), state);
-    g_signal_connect(complaint, "clicked",
-                     G_CALLBACK(complaint_clicked), state);
-    g_signal_connect(state->citizenHours, "changed",
-                     G_CALLBACK(tariff_changed), state);
+    /* -- Community Reviews table -- */
+    communityReviews =
+        make_tree_view("Community Reviews", &store, reviewTitles, 2);
+    state->citizenReviews = communityReviews;
+    gtk_box_pack_start(GTK_BOX(feedTab), communityReviews,
+                       TRUE, TRUE, 0);
+
+    /* ================================================================
+       Assemble notebook — 3 tabs, all with gtk_widget_show_all labels
+       ================================================================ */
+    tabLabel = make_stock_tab("Find & Book", GTK_STOCK_FIND);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(inner), findTab, tabLabel);
+
+    tabLabel = make_stock_tab("My Reservations", GTK_STOCK_APPLY);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(inner), resTab, tabLabel);
+
+    tabLabel = make_stock_tab("Reviews & Complaints", GTK_STOCK_EDIT);
+    gtk_widget_show_all(tabLabel);
+    gtk_notebook_append_page(GTK_NOTEBOOK(inner), feedTab, tabLabel);
+
+    gtk_notebook_set_scrollable(GTK_NOTEBOOK(inner), TRUE);
+    gtk_container_set_border_width(GTK_CONTAINER(inner), 4);
+    gtk_box_pack_start(GTK_BOX(box), inner, TRUE, TRUE, 0);
+
+    /* ================================================================
+       Signal connections
+       ================================================================ */
+    g_signal_connect(confirmBtn,  "clicked",
+                     G_CALLBACK(reserve_clicked),    state);
+    g_signal_connect(cancelBtn,   "clicked",
+                     G_CALLBACK(cancel_reservation_clicked), state);
+    g_signal_connect(reviewBtn,   "clicked",
+                     G_CALLBACK(review_clicked),     state);
+    g_signal_connect(complaintBtn,"clicked",
+                     G_CALLBACK(complaint_clicked),  state);
     g_signal_connect(state->citizenService, "changed",
-                     G_CALLBACK(tariff_changed), state);
+                     G_CALLBACK(tariff_changed),     state);
+
+    /* ================================================================
+       Initial populate
+       ================================================================ */
     update_tariff(state);
     refresh_citizen_tables(state);
     return box;
@@ -4004,6 +4584,7 @@ static void on_window_destroy(GtkWidget *widget, gpointer user_data)
     (void)widget;
     stop_agent_realtime_timer((UiState *)user_data);
     stop_admin_realtime_timer((UiState *)user_data);
+    stop_citizen_realtime_timer((UiState *)user_data);
     gtk_main_quit();
 }
 

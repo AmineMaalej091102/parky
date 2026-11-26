@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 (Enter-key form submission)
-- **Completed:** Connected "activate" signal on loginEmail + loginPassword → login_clicked; signupUsername + signupEmail + signupPassword → create_account_clicked. Pressing Enter in any auth field now submits the respective form immediately. Compiles -Wall -Wextra clean on Ubuntu 18.04 Docker (EXIT:0, no warnings).
-- **Next Task:** Boot in Docker with DISPLAY forwarded and visually verify Admin Dashboard at 1180×740.
-- **Build Status:** Ubuntu 18.04 Docker build confirmed clean — EXIT:0.
+﻿- **Active Release:** v1.0.0 (Citizen Dashboard Overhaul)
+- **Completed:** Citizen header stripped to badge+sign-out only (no avatar/name); Profile tab removed; 3 tabs with gtk_widget_show_all labels; Tab1 parking table (ID hidden, 5 cols) with row-select → booking card (selected label, spot/date/time inputs, dynamic service combo, live tariff, single Confirm Booking button); Tab2 reservations (7 cols, parking name, markup status, Cancel button, 2s real-time timer); Tab3 parking dropdown replaces raw ID in review form; complaint form with validation; citizen timer started on login, stopped on sign-out/window-close. Compiles -Wall -Wextra clean, EXIT:0, zero warnings.
+- **Next Task:** Boot in Docker with DISPLAY forwarded and visually verify all 3 citizen tabs at 1180×740.
+- **Build Status:** Ubuntu 18.04 Docker build confirmed clean — EXIT:0, no warnings.
