@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdint.h>
 
 #define PARKY_DATA_DIR "data"
 
@@ -234,52 +235,7 @@ int generate_demo_data(ParkyData *data)
     return storage_save(data);
 }
 
-int storage_init(ParkyData *data)
-{
-    const char *requiredFiles[] = {
-        "data/users.txt",
-        "data/parkings.txt",
-        "data/reservations.txt",
-        "data/services.txt",
-        "data/reviews.txt",
-        "data/complaints.txt"
-    };
-    size_t i;
-    int createdOrMissing = 0;
-
-    if (data == NULL) {
-        return -1;
-    }
-    if (ensure_data_dir() != 0) {
-        return -1;
-    }
-
-    storage_seed(data);
-
-    for (i = 0; i < sizeof(requiredFiles) / sizeof(requiredFiles[0]); ++i) {
-        if (!file_exists(requiredFiles[i])) {
-            FILE *file = fopen(requiredFiles[i], "w");
-            if (file == NULL) {
-                continue;
-            }
-            fclose(file);
-            createdOrMissing = 1;
-        }
-    }
-
-    if (storage_load(data)) {
-        if (data->parkingCount >= 2) {
-            return 0;
-        }
-    }
-
-    if (createdOrMissing || data->parkingCount < 2) {
-        return generate_demo_data(data);
-    }
-    return 0;
-}
-
-int storage_load(ParkyData *data)
+static int legacy_storage_load(ParkyData *data)
 {
     FILE *file;
     int count;
@@ -416,107 +372,147 @@ int storage_load(ParkyData *data)
     return 1;
 }
 
-int storage_save(const ParkyData *data)
+typedef struct {
+    char magic[4];
+    uint32_t version;
+    uint32_t count;
+} ParkyFileHeader;
+
+static int data_file_exists(const char *path)
+{
+    struct stat info;
+    return stat(path, &info) == 0 && S_ISREG(info.st_mode);
+}
+
+static int load_records(const char *path, void *records, size_t recordSize,
+                        uint32_t capacity, int *count)
 {
     FILE *file;
-    int i;
+    ParkyFileHeader header;
+    size_t got;
 
-    if (data == NULL) {
-        return 0;
-    }
-    if (ensure_data_dir() != 0) {
-        return 0;
-    }
-
-    file = fopen("data/users.txt", "w");
+    *count = 0;
+    file = fopen(path, "rb");
     if (file == NULL) {
+        return errno == ENOENT ? 1 : 0;
+    }
+    if (fread(&header, sizeof(header), 1, file) != 1 ||
+        memcmp(header.magic, "PKY2", 4) != 0 || header.version != 2 ||
+        header.count > capacity) {
+        fclose(file);
         return 0;
     }
-    for (i = 0; i < data->userCount; ++i) {
-        fprintf(file, "%d %s %s %s %d %d %s\n",
-                data->users[i].id,
-                data->users[i].name,
-                data->users[i].password,
-                data->users[i].email,
-                (int)data->users[i].role,
-                data->users[i].assignedParkingId,
-                data->users[i].avatarPath[0] != '\0'
-                    ? data->users[i].avatarPath : "none");
-    }
-    fclose(file);
-
-    file = fopen("data/parkings.txt", "w");
-    if (file == NULL) {
+    got = fread(records, recordSize, header.count, file);
+    if (got != header.count || fgetc(file) != EOF || ferror(file)) {
+        fclose(file);
         return 0;
     }
-    for (i = 0; i < data->parkingCount; ++i) {
-        fprintf(file, "%d %s %s %d %d %d\n",
-                data->parkings[i].id,
-                data->parkings[i].name,
-                data->parkings[i].address,
-                data->parkings[i].totalSpots,
-                data->parkings[i].availableSpots,
-                data->parkings[i].status);
-    }
+    *count = (int)header.count;
     fclose(file);
-
-    file = fopen("data/reservations.txt", "w");
-    if (file == NULL) {
-        return 0;
-    }
-    for (i = 0; i < data->reservationCount; ++i) {
-        fprintf(file, "%d %d %d %s %s %d %d\n",
-                data->reservations[i].id,
-                data->reservations[i].citizenId,
-                data->reservations[i].parkingId,
-                data->reservations[i].date,
-                data->reservations[i].time,
-                data->reservations[i].spotNumber,
-                data->reservations[i].status);
-    }
-    fclose(file);
-
-    file = fopen("data/services.txt", "w");
-    if (file == NULL) {
-        return 0;
-    }
-    for (i = 0; i < data->serviceCount; ++i) {
-        fprintf(file, "%d %s %s %.2f %d\n",
-                data->services[i].id,
-                data->services[i].name,
-                data->services[i].description,
-                data->services[i].price,
-                data->services[i].status);
-    }
-    fclose(file);
-
-    file = fopen("data/reviews.txt", "w");
-    if (file == NULL) {
-        return 0;
-    }
-    for (i = 0; i < data->reviewCount; ++i) {
-        fprintf(file, "%d %d %d %d %s\n",
-                data->reviews[i].id,
-                data->reviews[i].citizenId,
-                data->reviews[i].parkingId,
-                data->reviews[i].rating,
-                data->reviews[i].comment);
-    }
-    fclose(file);
-
-    file = fopen("data/complaints.txt", "w");
-    if (file == NULL) {
-        return 0;
-    }
-    for (i = 0; i < data->complaintCount; ++i) {
-        fprintf(file, "%d %d %s %s %d\n",
-                data->complaints[i].id,
-                data->complaints[i].citizenId,
-                data->complaints[i].subject,
-                data->complaints[i].description,
-                data->complaints[i].status);
-    }
-    fclose(file);
-
     return 1;
+}
+
+static int save_records(const char *path, const void *records,
+                        size_t recordSize, uint32_t count, uint32_t capacity)
+{
+    FILE *file;
+    ParkyFileHeader header;
+    int ok;
+
+    if (count > capacity) {
+        return 0;
+    }
+    memcpy(header.magic, "PKY2", 4);
+    header.version = 2;
+    header.count = count;
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return 0;
+    }
+    ok = fwrite(&header, sizeof(header), 1, file) == 1 &&
+         fwrite(records, recordSize, count, file) == count;
+    if (fclose(file) != 0) {
+        ok = 0;
+    }
+    return ok;
+}
+
+int storage_load(ParkyData *data)
+{
+    if (data == NULL || ensure_data_dir() != 0) {
+        return 0;
+    }
+    memset(data, 0, sizeof(*data));
+    return load_records("data/users.dat", data->users, sizeof(User),
+                        PARKY_MAX_USERS, &data->userCount) &&
+           load_records("data/parkings.dat", data->parkings, sizeof(Parking),
+                        PARKY_MAX_PARKINGS, &data->parkingCount) &&
+           load_records("data/reservations.dat", data->reservations,
+                        sizeof(Reservation), PARKY_MAX_RESERVATIONS,
+                        &data->reservationCount) &&
+           load_records("data/services.dat", data->services, sizeof(Service),
+                        PARKY_MAX_SERVICES, &data->serviceCount) &&
+           load_records("data/reviews.dat", data->reviews, sizeof(Review),
+                        PARKY_MAX_REVIEWS, &data->reviewCount) &&
+           load_records("data/complaints.dat", data->complaints,
+                        sizeof(Complaint), PARKY_MAX_COMPLAINTS,
+                        &data->complaintCount);
+}
+
+int storage_save(const ParkyData *data)
+{
+    if (data == NULL || ensure_data_dir() != 0) {
+        return 0;
+    }
+    return save_records("data/users.dat", data->users, sizeof(User),
+                        (uint32_t)data->userCount, PARKY_MAX_USERS) &&
+           save_records("data/parkings.dat", data->parkings, sizeof(Parking),
+                        (uint32_t)data->parkingCount, PARKY_MAX_PARKINGS) &&
+           save_records("data/reservations.dat", data->reservations,
+                        sizeof(Reservation), (uint32_t)data->reservationCount,
+                        PARKY_MAX_RESERVATIONS) &&
+           save_records("data/services.dat", data->services, sizeof(Service),
+                        (uint32_t)data->serviceCount, PARKY_MAX_SERVICES) &&
+           save_records("data/reviews.dat", data->reviews, sizeof(Review),
+                        (uint32_t)data->reviewCount, PARKY_MAX_REVIEWS) &&
+           save_records("data/complaints.dat", data->complaints,
+                        sizeof(Complaint), (uint32_t)data->complaintCount,
+                        PARKY_MAX_COMPLAINTS);
+}
+
+int storage_init(ParkyData *data)
+{
+    static const char *binaryFiles[] = {
+        "data/users.dat", "data/parkings.dat", "data/reservations.dat",
+        "data/services.dat", "data/reviews.dat", "data/complaints.dat"
+    };
+    static const char *legacyFiles[] = {
+        "data/users.txt", "data/parkings.txt", "data/reservations.txt",
+        "data/services.txt", "data/reviews.txt", "data/complaints.txt"
+    };
+    size_t i;
+    int anyBinary = 0;
+    int anyLegacy = 0;
+
+    if (data == NULL || ensure_data_dir() != 0) {
+        return -1;
+    }
+    for (i = 0; i < sizeof(binaryFiles) / sizeof(binaryFiles[0]); ++i) {
+        anyBinary |= data_file_exists(binaryFiles[i]);
+        anyLegacy |= file_exists(legacyFiles[i]);
+    }
+    if (!anyBinary && anyLegacy) {
+        if (legacy_storage_load(data) &&
+            (data->userCount + data->parkingCount + data->reservationCount +
+             data->serviceCount + data->reviewCount + data->complaintCount > 0) &&
+            storage_save(data)) {
+            return 0;
+        }
+        /* A bad or empty legacy store falls through to normal initialization. */
+    }
+    if (storage_load(data) && data->parkingCount >= 2) {
+        return 0;
+    }
+    storage_seed(data);
+    return generate_demo_data(data) ? 0 : -1;
 }

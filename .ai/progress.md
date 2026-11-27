@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 — COMPLETE
-- **Completed:** Full recruiter-ready README.md generated: header + shields.io badges (C99, GTK+2.24, Glade 2.12.2, Docker, MIT), visual preview gallery (4 docs/screen-*.png slots), 3-role feature breakdown (Admin KPIs/CRUD, Agent real-time spots/reservations/services, Citizen live-search/calendar-booking/tariff/reviews), exact Docker+GUI quick-start for Windows (VcXsrv) and Linux (xhost), verified demo credentials from data/users.txt, full data model reference, and v1.0.0→v2.0.0 engineering trade-offs table (txt→dat, arrays→linked lists, monolithic→modular UI, Jenkins+SonarQube CI/CD). Screenshots noted as placeholder paths in docs/.
-- **Next Task:** Capture 4 GUI screenshots in Docker (screen-login, screen-admin, screen-agent, screen-citoyen) and place in docs/ to complete the gallery.
-- **Build Status:** Ubuntu 18.04 Docker build confirmed clean — EXIT:0, no warnings. v1.0.0 feature-complete.
+- **Active Release:** v2.0.0 — Lot V2.1 complete.
+- **Persistence:** Migrated all six entities to versioned PKY2 binary `.dat` files; missing files load safely, and valid legacy `.txt` records import once.
+- **Runtime files:** Added `data/*.dat` to `.gitignore`; storage API signatures remain compatible.
+- **Verification:** `gcc -std=c99 -Wall -Wextra -Iinclude -fsyntax-only src/storage.c` and `git diff --check` pass.
