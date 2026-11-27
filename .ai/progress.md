@@ -1,4 +1,4 @@
-- **Active Release:** v2.0.0 — Lot V2.2 complete.
-- **Collections:** Users, parkings, reservations, services, reviews, and complaints now use heap buffers with tracked counts and capacities; buffers grow safely when loading larger datasets.
-- **Lifecycle:** Added `storage_cleanup()` and call it after the UI exits or storage initialization fails; existing app CRUD limits remain compatible.
-- **Verification:** C99 `-Wall -Wextra` syntax checks passed for storage, main, admin, agent, and citizen sources; `git diff --check` passed.
+- **Active Release:** v2.0.0 — Lot V2.3 complete.
+- **Tests:** Added GTK-free `make test`; 22 checks pass, including 501-record heap growth, PKY2 persistence, cleanup, role CRUD, approvals, registration, and TND billing.
+- **Benchmark:** Added GTK-free `make bench` comparing text and binary serialization for 5,000 parkings and reservations; observed binary faster and larger in this run.
+- **Verification:** `make test bench` and `git diff --check` pass; temporary datasets and generated test executables were cleaned.
