@@ -5,8 +5,102 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define PARKY_DATA_DIR "data"
+
+static ParkyData *storage_owner;
+
+static void free_buffers(ParkyData *data)
+{
+    free(data->users);
+    free(data->parkings);
+    free(data->reservations);
+    free(data->services);
+    free(data->reviews);
+    free(data->complaints);
+    data->users = NULL;
+    data->parkings = NULL;
+    data->reservations = NULL;
+    data->services = NULL;
+    data->reviews = NULL;
+    data->complaints = NULL;
+    data->userCount = data->parkingCount = data->reservationCount = 0;
+    data->serviceCount = data->reviewCount = data->complaintCount = 0;
+    data->userCapacity = data->parkingCapacity = 0;
+    data->reservationCapacity = data->serviceCapacity = 0;
+    data->reviewCapacity = data->complaintCapacity = 0;
+}
+
+static int reserve_array(void **items, int *capacity, int needed,
+                         size_t itemSize, int initialCapacity)
+{
+    int newCapacity;
+    void *grown;
+
+    if (needed <= *capacity) {
+        return 1;
+    }
+    newCapacity = *capacity > 0 ? *capacity : initialCapacity;
+    while (newCapacity < needed) {
+        if (newCapacity > 1073741823) {
+            return 0;
+        }
+        newCapacity *= 2;
+    }
+    grown = realloc(*items, (size_t)newCapacity * itemSize);
+    if (grown == NULL) {
+        return 0;
+    }
+    *items = grown;
+    *capacity = newCapacity;
+    return 1;
+}
+
+static int initialize_collections(ParkyData *data)
+{
+    return reserve_array((void **)&data->users, &data->userCapacity,
+                         PARKY_MAX_USERS, sizeof(User), PARKY_MAX_USERS) &&
+           reserve_array((void **)&data->parkings, &data->parkingCapacity,
+                         PARKY_MAX_PARKINGS, sizeof(Parking),
+                         PARKY_MAX_PARKINGS) &&
+           reserve_array((void **)&data->reservations,
+                         &data->reservationCapacity, PARKY_MAX_RESERVATIONS,
+                         sizeof(Reservation), PARKY_MAX_RESERVATIONS) &&
+           reserve_array((void **)&data->services, &data->serviceCapacity,
+                         PARKY_MAX_SERVICES, sizeof(Service),
+                         PARKY_MAX_SERVICES) &&
+           reserve_array((void **)&data->reviews, &data->reviewCapacity,
+                         PARKY_MAX_REVIEWS, sizeof(Review),
+                         PARKY_MAX_REVIEWS) &&
+           reserve_array((void **)&data->complaints,
+                         &data->complaintCapacity, PARKY_MAX_COMPLAINTS,
+                         sizeof(Complaint), PARKY_MAX_COMPLAINTS);
+}
+
+static int reset_data(ParkyData *data)
+{
+    if (storage_owner == data) {
+        free_buffers(data);
+    } else {
+        memset(data, 0, sizeof(*data));
+    }
+    storage_owner = data;
+    if (!initialize_collections(data)) {
+        free_buffers(data);
+        storage_owner = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+void storage_cleanup(void)
+{
+    if (storage_owner != NULL) {
+        free_buffers(storage_owner);
+        storage_owner = NULL;
+    }
+}
 
 static int ensure_data_dir(void)
 {
@@ -45,10 +139,9 @@ static int file_exists(const char *path)
 
 void storage_seed(ParkyData *data)
 {
-    if (data == NULL) {
+    if (data == NULL || !reset_data(data)) {
         return;
     }
-    memset(data, 0, sizeof(*data));
 
     data->users[0].id = 1;
     strcpy(data->users[0].name, "admin");
@@ -123,7 +216,9 @@ int generate_demo_data(ParkyData *data)
     };
     int i;
 
-    memset(data, 0, sizeof(*data));
+    if (!reset_data(data)) {
+        return 0;
+    }
 
     data->users[0].id = 1;
     strcpy(data->users[0].name, "admin");
@@ -243,7 +338,9 @@ static int legacy_storage_load(ParkyData *data)
     if (data == NULL || ensure_data_dir() != 0) {
         return 0;
     }
-    memset(data, 0, sizeof(*data));
+    if (!reset_data(data)) {
+        return 0;
+    }
 
     file = fopen("data/users.txt", "r");
     if (file == NULL) {
@@ -384,8 +481,9 @@ static int data_file_exists(const char *path)
     return stat(path, &info) == 0 && S_ISREG(info.st_mode);
 }
 
-static int load_records(const char *path, void *records, size_t recordSize,
-                        uint32_t capacity, int *count)
+static int load_records(const char *path, void **records, int *allocated,
+                        size_t recordSize, uint32_t initialCapacity,
+                        int *count)
 {
     FILE *file;
     ParkyFileHeader header;
@@ -398,11 +496,17 @@ static int load_records(const char *path, void *records, size_t recordSize,
     }
     if (fread(&header, sizeof(header), 1, file) != 1 ||
         memcmp(header.magic, "PKY2", 4) != 0 || header.version != 2 ||
-        header.count > capacity) {
+        header.count > 2147483647U) {
         fclose(file);
         return 0;
     }
-    got = fread(records, recordSize, header.count, file);
+    if (header.count > (uint32_t)*allocated &&
+        !reserve_array(records, allocated, (int)header.count, recordSize,
+                       (int)initialCapacity)) {
+        fclose(file);
+        return 0;
+    }
+    got = fread(*records, recordSize, header.count, file);
     if (got != header.count || fgetc(file) != EOF || ferror(file)) {
         fclose(file);
         return 0;
@@ -413,24 +517,24 @@ static int load_records(const char *path, void *records, size_t recordSize,
 }
 
 static int save_records(const char *path, const void *records,
-                        size_t recordSize, uint32_t count, uint32_t capacity)
+                        size_t recordSize, int count, int capacity)
 {
     FILE *file;
     ParkyFileHeader header;
     int ok;
 
-    if (count > capacity) {
+    if (count < 0 || count > capacity || (count > 0 && records == NULL)) {
         return 0;
     }
     memcpy(header.magic, "PKY2", 4);
     header.version = 2;
-    header.count = count;
+    header.count = (uint32_t)count;
     file = fopen(path, "wb");
     if (file == NULL) {
         return 0;
     }
     ok = fwrite(&header, sizeof(header), 1, file) == 1 &&
-         fwrite(records, recordSize, count, file) == count;
+         fwrite(records, recordSize, (size_t)count, file) == (size_t)count;
     if (fclose(file) != 0) {
         ok = 0;
     }
@@ -439,45 +543,55 @@ static int save_records(const char *path, const void *records,
 
 int storage_load(ParkyData *data)
 {
-    if (data == NULL || ensure_data_dir() != 0) {
+    if (data == NULL || ensure_data_dir() != 0 || !reset_data(data)) {
         return 0;
     }
-    memset(data, 0, sizeof(*data));
-    return load_records("data/users.dat", data->users, sizeof(User),
-                        PARKY_MAX_USERS, &data->userCount) &&
-           load_records("data/parkings.dat", data->parkings, sizeof(Parking),
+    return load_records("data/users.dat", (void **)&data->users,
+                        &data->userCapacity, sizeof(User), PARKY_MAX_USERS,
+                        &data->userCount) &&
+           load_records("data/parkings.dat", (void **)&data->parkings,
+                        &data->parkingCapacity, sizeof(Parking),
                         PARKY_MAX_PARKINGS, &data->parkingCount) &&
-           load_records("data/reservations.dat", data->reservations,
-                        sizeof(Reservation), PARKY_MAX_RESERVATIONS,
-                        &data->reservationCount) &&
-           load_records("data/services.dat", data->services, sizeof(Service),
+           load_records("data/reservations.dat",
+                        (void **)&data->reservations,
+                        &data->reservationCapacity, sizeof(Reservation),
+                        PARKY_MAX_RESERVATIONS, &data->reservationCount) &&
+           load_records("data/services.dat", (void **)&data->services,
+                        &data->serviceCapacity, sizeof(Service),
                         PARKY_MAX_SERVICES, &data->serviceCount) &&
-           load_records("data/reviews.dat", data->reviews, sizeof(Review),
+           load_records("data/reviews.dat", (void **)&data->reviews,
+                        &data->reviewCapacity, sizeof(Review),
                         PARKY_MAX_REVIEWS, &data->reviewCount) &&
-           load_records("data/complaints.dat", data->complaints,
-                        sizeof(Complaint), PARKY_MAX_COMPLAINTS,
-                        &data->complaintCount);
+           load_records("data/complaints.dat", (void **)&data->complaints,
+                        &data->complaintCapacity, sizeof(Complaint),
+                        PARKY_MAX_COMPLAINTS, &data->complaintCount);
 }
 
 int storage_save(const ParkyData *data)
 {
-    if (data == NULL || ensure_data_dir() != 0) {
+    if (data == NULL || ensure_data_dir() != 0 ||
+        data->userCount > data->userCapacity ||
+        data->parkingCount > data->parkingCapacity ||
+        data->reservationCount > data->reservationCapacity ||
+        data->serviceCount > data->serviceCapacity ||
+        data->reviewCount > data->reviewCapacity ||
+        data->complaintCount > data->complaintCapacity) {
         return 0;
     }
     return save_records("data/users.dat", data->users, sizeof(User),
-                        (uint32_t)data->userCount, PARKY_MAX_USERS) &&
+                        data->userCount, data->userCapacity) &&
            save_records("data/parkings.dat", data->parkings, sizeof(Parking),
-                        (uint32_t)data->parkingCount, PARKY_MAX_PARKINGS) &&
+                        data->parkingCount, data->parkingCapacity) &&
            save_records("data/reservations.dat", data->reservations,
-                        sizeof(Reservation), (uint32_t)data->reservationCount,
-                        PARKY_MAX_RESERVATIONS) &&
+                        sizeof(Reservation), data->reservationCount,
+                        data->reservationCapacity) &&
            save_records("data/services.dat", data->services, sizeof(Service),
-                        (uint32_t)data->serviceCount, PARKY_MAX_SERVICES) &&
+                        data->serviceCount, data->serviceCapacity) &&
            save_records("data/reviews.dat", data->reviews, sizeof(Review),
-                        (uint32_t)data->reviewCount, PARKY_MAX_REVIEWS) &&
+                        data->reviewCount, data->reviewCapacity) &&
            save_records("data/complaints.dat", data->complaints,
-                        sizeof(Complaint), (uint32_t)data->complaintCount,
-                        PARKY_MAX_COMPLAINTS);
+                        sizeof(Complaint), data->complaintCount,
+                        data->complaintCapacity);
 }
 
 int storage_init(ParkyData *data)

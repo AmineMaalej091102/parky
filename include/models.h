@@ -70,18 +70,24 @@ typedef struct {
 } Complaint;
 
 typedef struct {
-    User users[PARKY_MAX_USERS];
+    User *users;
     int userCount;
-    Parking parkings[PARKY_MAX_PARKINGS];
+    int userCapacity;
+    Parking *parkings;
     int parkingCount;
-    Reservation reservations[PARKY_MAX_RESERVATIONS];
+    int parkingCapacity;
+    Reservation *reservations;
     int reservationCount;
-    Service services[PARKY_MAX_SERVICES];
+    int reservationCapacity;
+    Service *services;
     int serviceCount;
-    Review reviews[PARKY_MAX_REVIEWS];
+    int serviceCapacity;
+    Review *reviews;
     int reviewCount;
-    Complaint complaints[PARKY_MAX_COMPLAINTS];
+    int reviewCapacity;
+    Complaint *complaints;
     int complaintCount;
+    int complaintCapacity;
 } ParkyData;
 
 #endif

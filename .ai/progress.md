@@ -1,4 +1,4 @@
-- **Active Release:** v2.0.0 — Lot V2.1 complete.
-- **Persistence:** Migrated all six entities to versioned PKY2 binary `.dat` files; missing files load safely, and valid legacy `.txt` records import once.
-- **Runtime files:** Added `data/*.dat` to `.gitignore`; storage API signatures remain compatible.
-- **Verification:** `gcc -std=c99 -Wall -Wextra -Iinclude -fsyntax-only src/storage.c` and `git diff --check` pass.
+- **Active Release:** v2.0.0 — Lot V2.2 complete.
+- **Collections:** Users, parkings, reservations, services, reviews, and complaints now use heap buffers with tracked counts and capacities; buffers grow safely when loading larger datasets.
+- **Lifecycle:** Added `storage_cleanup()` and call it after the UI exits or storage initialization fails; existing app CRUD limits remain compatible.
+- **Verification:** C99 `-Wall -Wextra` syntax checks passed for storage, main, admin, agent, and citizen sources; `git diff --check` passed.
