@@ -9,8 +9,13 @@ int main(int argc, char **argv)
 
     if (storage_init(&data) != 0) {
         fprintf(stderr, "Storage initialization failed.\n");
+        storage_cleanup();
         return 1;
     }
 
-    return ui_run(&data, argc, argv);
+    {
+        int result = ui_run(&data, argc, argv);
+        storage_cleanup();
+        return result;
+    }
 }

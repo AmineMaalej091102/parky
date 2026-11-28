@@ -1,4 +1,4 @@
-﻿- **Active Release:** v1.0.0 — COMPLETE
-- **Completed:** Full recruiter-ready README.md generated: header + shields.io badges (C99, GTK+2.24, Glade 2.12.2, Docker, MIT), visual preview gallery (4 docs/screen-*.png slots), 3-role feature breakdown (Admin KPIs/CRUD, Agent real-time spots/reservations/services, Citizen live-search/calendar-booking/tariff/reviews), exact Docker+GUI quick-start for Windows (VcXsrv) and Linux (xhost), verified demo credentials from data/users.txt, full data model reference, and v1.0.0→v2.0.0 engineering trade-offs table (txt→dat, arrays→linked lists, monolithic→modular UI, Jenkins+SonarQube CI/CD). Screenshots noted as placeholder paths in docs/.
-- **Next Task:** Capture 4 GUI screenshots in Docker (screen-login, screen-admin, screen-agent, screen-citoyen) and place in docs/ to complete the gallery.
-- **Build Status:** Ubuntu 18.04 Docker build confirmed clean — EXIT:0, no warnings. v1.0.0 feature-complete.
+- **Active Release:** v2.0.0 — complete.
+- **Portfolio README:** Updated badges, v1-to-v2 architecture table, binary persistence and dynamic memory documentation, and the I/O benchmark trade-off.
+- **CI/CD showcase:** Added Jenkins and SonarQube screenshots and documented Docker, headless checks, cppcheck Generic Issue import, and quality gate results.
+- **Preserved:** Existing UI screenshot gallery and Quick Start instructions; progress file is exactly four lines.

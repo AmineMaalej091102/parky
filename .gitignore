@@ -16,3 +16,6 @@ _legacy_raw/
 
 # uploaded avatars
 data/avatars/*
+
+# Binary runtime persistence
+data/*.dat
