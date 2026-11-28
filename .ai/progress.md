@@ -1,4 +1,4 @@
-- **Active Release:** v2.0.0 — Lot V2.3 complete.
-- **Tests:** Added GTK-free `make test`; 22 checks pass, including 501-record heap growth, PKY2 persistence, cleanup, role CRUD, approvals, registration, and TND billing.
-- **Benchmark:** Added GTK-free `make bench` comparing text and binary serialization for 5,000 parkings and reservations; observed binary faster and larger in this run.
-- **Verification:** `make test bench` and `git diff --check` pass; temporary datasets and generated test executables were cleaned.
+- **Active Release:** v2.0.0 — Native cppcheck external issue import configured.
+- **Build image:** Added `cppcheck` and `python3` to the Ubuntu 18.04 CI image.
+- **SonarQube:** Configured Generic Issue Data report import; Jenkins converts cppcheck XML to JSON and runs the scanner container on host networking with the Jenkins token and quality gate wait.
+- **Verification:** Jenkinsfile Groovy/shell syntax and converter sample validation pass; `git diff --check` passes.

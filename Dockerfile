@@ -8,6 +8,8 @@ RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|
     && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
+        cppcheck \
+        python3 \
         libgtk2.0-dev \
         libxml2-dev \
         libxml-parser-perl \
