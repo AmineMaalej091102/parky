@@ -1,4 +1,4 @@
-- **Active Release:** v2.0.0 — Native cppcheck external issue import configured.
-- **Build image:** Added `cppcheck` and `python3` to the Ubuntu 18.04 CI image.
-- **SonarQube:** Configured Generic Issue Data report import; Jenkins converts cppcheck XML to JSON and runs the scanner container on host networking with the Jenkins token and quality gate wait.
-- **Verification:** Jenkinsfile Groovy/shell syntax and converter sample validation pass; `git diff --check` passes.
+- **Active Release:** v2.0.0 — complete.
+- **Portfolio README:** Updated badges, v1-to-v2 architecture table, binary persistence and dynamic memory documentation, and the I/O benchmark trade-off.
+- **CI/CD showcase:** Added Jenkins and SonarQube screenshots and documented Docker, headless checks, cppcheck Generic Issue import, and quality gate results.
+- **Preserved:** Existing UI screenshot gallery and Quick Start instructions; progress file is exactly four lines.
