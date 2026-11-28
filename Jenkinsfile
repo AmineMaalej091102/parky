@@ -50,7 +50,7 @@ pipeline {
         stage('Static Analysis & SonarQube Quality Gate') {
             steps {
                 withCredentials([string(
-                    credentialsId: 'sonar-token',
+                    credentialsId: 'SONAR_TOKEN',
                     variable: 'SONAR_TOKEN'
                 )]) {
                     sh '''
